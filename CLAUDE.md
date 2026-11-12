@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Release Manager is a Tauri 2 desktop app that downloads Danmaku Anywhere
+Danmaku Builds (this repo, formerly Release Manager) is a Tauri 2 desktop app that downloads Danmaku Anywhere
 extension builds from `Danmaku-Anywhere/danmaku-anywhere` releases and keeps one
 of them as the unpacked folder loaded into Chrome. Architecture, toolchain,
 tests and the release flow are in `AGENTS.md`.

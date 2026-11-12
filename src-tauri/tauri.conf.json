@@ -1,5 +1,5 @@
 {
-  "productName": "Release Manager",
+  "productName": "Danmaku Builds",
   "version": "0.5.1",
   "identifier": "fish.quin.danmaku-anywhere.release-manager",
   "build": {
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Release Manager",
+        "title": "Danmaku Builds",
         "width": 1024,
         "height": 720
       }

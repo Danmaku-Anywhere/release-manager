@@ -42,7 +42,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --draft --verify-tag --generate-notes \
-            --title "Release Manager $GITHUB_REF_NAME"
+            --title "Danmaku Builds $GITHUB_REF_NAME"
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
             --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
@@ -88,7 +88,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           args: "--bundles appimage"
 
       - name: Upload AppImage artifact
@@ -132,7 +132,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           args: "--bundles app,dmg"
 
       - name: Upload dmg artifact
@@ -173,7 +173,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
-          uploadUpdaterJson: false
+          includeUpdaterJson: false
           # Installer only: no updater artifacts (disabled via the config override),
           # so this job needs no signing key.
           args: "--bundles nsis --config src-tauri/tauri.windows.conf.json"
@@ -192,7 +192,7 @@ jobs:
         shell: bash
         run: |
           version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          file="portable/release-manager_${version}_x64-portable.exe"
+          file="portable/danmaku-builds_${version}_x64-portable.exe"
           mkdir -p portable
           cp src-tauri/target/release/release-manager.exe "$file"
           echo "file=$file" >> "$GITHUB_OUTPUT"
