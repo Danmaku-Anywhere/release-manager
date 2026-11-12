@@ -40,11 +40,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            --draft --verify-tag --generate-notes \
-            --title "Danmaku Builds $GITHUB_REF_NAME"
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
-            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+            -f tag_name="$GITHUB_REF_NAME" \
+            -f name="Danmaku Builds $GITHUB_REF_NAME" \
+            -F draft=true -F generate_release_notes=true \
+            --jq .id)
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   build-linux:
