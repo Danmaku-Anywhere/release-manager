@@ -1,4 +1,4 @@
-# Agent context: app/release-manager
+# Agent context: release-manager
 
 ## Purpose
 
@@ -22,7 +22,7 @@ libwayland trampoline) are `cfg`-gated.
 
 It is versioned and released independently of the extension, with its own
 self-update lifecycle. It consumes the extension's `v*`/`preview-*`/`nightly-*`
-releases and publishes its own under the `release-manager-v*` tag namespace.
+releases from the extension repo and publishes its own releases here.
 
 ## Architecture
 
@@ -75,11 +75,10 @@ unauthenticated requests suffice.
 
 ## How to run
 
-- Dev: `pnpm tauri dev` (root convenience: `pnpm release-manager`). Vite serves
-  the frontend; Tauri opens the native window.
-- There is deliberately **no `build` script**, so the root `pnpm -r build` skips
-  this package. It still participates in the root `test`, `type-check`, and
-  `lint:ci` sweeps via its own scripts.
+- Dev: `pnpm dev` (`tauri dev`). Vite serves the frontend; Tauri opens the
+  native window.
+- Checks: `pnpm type-check`, `pnpm lint`, `pnpm test`. CI runs the same on every
+  PR.
 - The app icon is set on the window at startup as well as bundled. GNOME Wayland
   ignores window-set icons and matches the installed `.desktop` file instead, so
   under `pnpm dev` there it shows a generic icon. The installed AppImage and X11
@@ -134,8 +133,13 @@ a directory link fails with access denied.
 
 ## Self-update and signing
 
-- `tauri-plugin-updater` checks the floating `release-manager-latest` release's
-  `latest.json`. The minisign public key is embedded in `tauri.conf.json`.
+- `tauri-plugin-updater` checks `latest.json` on this repo's latest release
+  (`releases/latest/download/latest.json`). The minisign public key is embedded
+  in `tauri.conf.json`.
+- Copies older than 0.5.0 poll the `release-manager-latest` release in the
+  extension repo and trust a different key. That feed is frozen at 0.5.0, which
+  was signed with the old key and carries this repo's key and feed, so old copies
+  move over by updating once. Never delete that release or its tag.
 - Release signing uses a minisign keypair generated with `pnpm tauri signer
   generate`. The private key and its password are CI secrets
   (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); never
@@ -143,17 +147,13 @@ a directory link fails with access denied.
 
 ## Release flow
 
-Push a `release-manager-v<version>` tag (or run the workflow manually). CI builds
-and signs the AppImage and creates a draft release with `latest.json`, then adds
-the signed macOS bundle and its `darwin-aarch64` entry to it. A human
-publishes the draft; publishing promotes `latest.json` onto the floating
-`release-manager-latest` release that the updater polls. Releases are published as
-prereleases, so GitHub never makes one the repo's latest release and the docs
-changelog sync skips them. A manual run creates no
-release but uploads the AppImage, the macOS dmg, the Windows installer and the
-portable executable as workflow artifacts, which is the way to get a CI-built build to
-try without tagging. Bump the version in `tauri.conf.json`, `package.json` and
-`src-tauri/Cargo.toml` before tagging; the tag must equal
-`release-manager-v<that version>` or the jobs target different releases. The first
-install is manual (download the AppImage or dmg from the release); self-update covers
-every version after that.
+Bump the version in `src-tauri/tauri.conf.json`, `package.json` and
+`src-tauri/Cargo.toml`, merge, then push a `v<that version>` tag. CI builds and
+signs the AppImage and creates a draft release with `latest.json`, then adds the
+signed macOS bundle (merging its `darwin-aarch64` entry into `latest.json`) and
+the Windows installer and portable executable. A human publishes the draft; it
+then becomes the latest release and the updater picks it up. A manual run
+creates no release but uploads every bundle as workflow artifacts, which is the
+way to try a CI build without tagging. The first install is manual (download
+the AppImage or dmg from the release); self-update covers every version after
+that.

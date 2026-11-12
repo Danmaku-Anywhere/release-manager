@@ -1,0 +1,201 @@
+name: Release
+
+# Builds and releases the app.
+#
+# Flow:
+#   1. Push a v<version> tag (or run manually). The build job compiles, signs, and
+#      creates a DRAFT GitHub release with the AppImage, its signature, and a
+#      latest.json updater manifest. A macOS job then adds an Apple Silicon .dmg and
+#      the signed .app.tar.gz updater bundle, merging its darwin-aarch64 entry into
+#      that latest.json. A Windows job adds an NSIS installer and a portable
+#      executable (no self-update on Windows, so no updater artifacts or signing).
+#      A manual run builds the same bundles without releasing and uploads them as
+#      workflow artifacts.
+#   2. A human reviews and PUBLISHES the draft. It then becomes the repo's latest
+#      release, and the in-app updater reads its latest.json through GitHub's
+#      releases/latest/download URL, so updates only go live on publish.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    # The minisign signing key lives in this Environment, not in repo-wide
+    # secrets, so only this job can read it and forks never see it.
+    environment: release-manager-signing
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build, sign, and draft release
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # A manual run passes an empty tagName, so it builds without creating a
+          # draft release that could later be published by mistake.
+          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
+          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: true
+          args: "--bundles appimage"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manager-linux-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  build-macos:
+    # tauri-action merges into the latest.json already on the draft, so this has to
+    # run after the Linux job uploads it, or one job's platform entry is lost.
+    needs: build
+    runs-on: macos-latest
+    environment: release-manager-signing
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build, sign, and add to draft release
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
+          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          args: "--bundles app,dmg"
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manager-macos-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    # Runs after the Linux job so the draft release already exists and this job
+    # only uploads its installer to it, avoiding a concurrent create-release race.
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and draft Windows installer
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
+          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
+          releaseDraft: true
+          prerelease: false
+          # Installer only: no updater artifacts (disabled via the config override),
+          # so this job needs no signing key. Windows has no in-app self-update.
+          args: "--bundles nsis --config src-tauri/tauri.windows.conf.json"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manager-windows-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      # The plain build output already embeds the frontend, so it runs without
+      # the installer. It still needs the WebView2 runtime, which Windows 11 ships.
+      - name: Stage portable executable
+        id: portable
+        shell: bash
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          file="portable/release-manager_${version}_x64-portable.exe"
+          mkdir -p portable
+          cp src-tauri/target/release/release-manager.exe "$file"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manager-windows-portable
+          path: ${{ steps.portable.outputs.file }}
+          if-no-files-found: error
+
+      - name: Attach portable executable to the draft release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ steps.portable.outputs.file }}" --repo "$GITHUB_REPOSITORY" --clobber
