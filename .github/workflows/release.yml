@@ -42,7 +42,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --draft --verify-tag --generate-notes \
-            --title "Release Manager $GITHUB_REF_NAME"
+            --title "Danmaku Builds $GITHUB_REF_NAME"
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
             --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
@@ -192,7 +192,7 @@ jobs:
         shell: bash
         run: |
           version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          file="portable/release-manager_${version}_x64-portable.exe"
+          file="portable/danmaku-builds_${version}_x64-portable.exe"
           mkdir -p portable
           cp src-tauri/target/release/release-manager.exe "$file"
           echo "file=$file" >> "$GITHUB_OUTPUT"

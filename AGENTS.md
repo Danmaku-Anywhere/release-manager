@@ -1,4 +1,4 @@
-# Agent context: release-manager
+# Agent context: release-manager (Danmaku Builds)
 
 ## Purpose
 
@@ -9,7 +9,7 @@ manages which cached build is the "active" unpacked folder loaded into
 AppImage. Windows also ships as an NSIS installer plus a portable executable
 (no in-app self-update on Windows, so its build produces no updater artifacts
 and needs no signing key). The portable file is the plain `release-manager.exe`
-from the build renamed; it uses the same `~/.da-release-manager` data dir as
+from the build, renamed to `danmaku-builds_<version>_x64-portable.exe`; it uses the same `~/.da-release-manager` data dir as
 the installed app and, unlike the installer, does not bootstrap WebView2.
 
 macOS ships an Apple Silicon `.dmg` and self-updates like Linux. It is ad-hoc

@@ -1,4 +1,4 @@
-# Release Manager
+# Danmaku Builds
 
 A desktop app for trying Danmaku Anywhere builds. It lists the extension's
 stable, nightly and PR preview releases, downloads the one you pick, and keeps
