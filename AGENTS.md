@@ -148,12 +148,11 @@ a directory link fails with access denied.
 ## Release flow
 
 Bump the version in `src-tauri/tauri.conf.json`, `package.json` and
-`src-tauri/Cargo.toml`, merge, then push a `v<that version>` tag. CI builds and
-signs the AppImage and creates a draft release with `latest.json`, then adds the
-signed macOS bundle (merging its `darwin-aarch64` entry into `latest.json`) and
-the Windows installer and portable executable. A human publishes the draft; it
-then becomes the latest release and the updater picks it up. A manual run
-creates no release but uploads every bundle as workflow artifacts, which is the
-way to try a CI build without tagging. The first install is manual (download
-the AppImage or dmg from the release); self-update covers every version after
-that.
+`src-tauri/Cargo.toml`, merge, then push a `v<that version>` tag. CI creates a
+draft release, builds Linux, macOS and Windows in parallel into it, and then
+writes `latest.json` from the Linux and macOS update signatures in a final job.
+A human publishes the draft; it then becomes the latest release and the updater
+picks it up. A manual run creates no release but uploads every bundle as
+workflow artifacts, which is the way to try a CI build without tagging. The
+first install is manual (download the AppImage or dmg from the release);
+self-update covers every version after that.

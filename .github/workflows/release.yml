@@ -3,17 +3,19 @@ name: Release
 # Builds and releases the app.
 #
 # Flow:
-#   1. Push a v<version> tag (or run manually). The build job compiles, signs, and
-#      creates a DRAFT GitHub release with the AppImage, its signature, and a
-#      latest.json updater manifest. A macOS job then adds an Apple Silicon .dmg and
-#      the signed .app.tar.gz updater bundle, merging its darwin-aarch64 entry into
-#      that latest.json. A Windows job adds an NSIS installer and a portable
-#      executable (no self-update on Windows, so no updater artifacts or signing).
-#      A manual run builds the same bundles without releasing and uploads them as
-#      workflow artifacts.
-#   2. A human reviews and PUBLISHES the draft. It then becomes the repo's latest
+#   1. Push a v<version> tag. The draft job creates a DRAFT release, then the
+#      Linux, macOS and Windows jobs build in parallel and upload their bundles to
+#      it. Linux and macOS also upload signed updater bundles (.sig files).
+#   2. The manifest job writes latest.json from those signatures. Building it in
+#      one place, after every platform finished, means no job can overwrite
+#      another platform's entry.
+#   3. A human reviews and PUBLISHES the draft. It then becomes the repo's latest
 #      release, and the in-app updater reads its latest.json through GitHub's
 #      releases/latest/download URL, so updates only go live on publish.
+#
+# A manual run builds every bundle without creating a release and uploads them
+# as workflow artifacts. Windows has no self-update, so its job needs no signing
+# key.
 
 on:
   push:
@@ -25,10 +27,32 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  draft:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - name: Create the draft release
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --draft --verify-tag --generate-notes \
+            --title "Release Manager $GITHUB_REF_NAME"
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
+            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build-linux:
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
     runs-on: ubuntu-22.04
     # The minisign signing key lives in this Environment, not in repo-wide
-    # secrets, so only this job can read it and forks never see it.
+    # secrets, so only the signing jobs can read it and forks never see it.
     environment: release-manager-signing
     permissions:
       contents: write
@@ -56,21 +80,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build, sign, and draft release
+      - name: Build, sign, and upload
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # A manual run passes an empty tagName, so it builds without creating a
-          # draft release that could later be published by mistake.
-          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
-          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
-          releaseDraft: true
-          prerelease: false
-          generateReleaseNotes: true
-          uploadUpdaterJson: true
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          uploadUpdaterJson: false
           args: "--bundles appimage"
 
       - name: Upload AppImage artifact
@@ -81,9 +99,8 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    # tauri-action merges into the latest.json already on the draft, so this has to
-    # run after the Linux job uploads it, or one job's platform entry is lost.
-    needs: build
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
     runs-on: macos-latest
     environment: release-manager-signing
     permissions:
@@ -107,18 +124,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build, sign, and add to draft release
+      - name: Build, sign, and upload
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
-          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
-          releaseDraft: true
-          prerelease: false
-          uploadUpdaterJson: true
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          uploadUpdaterJson: false
           args: "--bundles app,dmg"
 
       - name: Upload dmg artifact
@@ -129,9 +143,8 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    # Runs after the Linux job so the draft release already exists and this job
-    # only uploads its installer to it, avoiding a concurrent create-release race.
-    needs: build
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
     runs-on: windows-latest
     permissions:
       contents: write
@@ -154,17 +167,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and draft Windows installer
+      - name: Build and upload the installer
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.event_name == 'push' && 'v__VERSION__' || '' }}
-          releaseName: ${{ github.event_name == 'push' && 'Release Manager v__VERSION__' || '' }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          uploadUpdaterJson: false
           # Installer only: no updater artifacts (disabled via the config override),
-          # so this job needs no signing key. Windows has no in-app self-update.
+          # so this job needs no signing key.
           args: "--bundles nsis --config src-tauri/tauri.windows.conf.json"
 
       - name: Upload installer artifact
@@ -199,3 +210,52 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" "${{ steps.portable.outputs.file }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  manifest:
+    needs: [ draft, build-linux, build-macos ]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download the update signatures
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' --dir sigs
+
+      - name: Write latest.json
+        shell: python
+        run: |
+          import datetime, glob, json, os, urllib.parse
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          base = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}/"
+
+          def entry(pattern):
+              matches = glob.glob(f"sigs/{pattern}")
+              if len(matches) != 1:
+                  raise SystemExit(f"expected one {pattern}, found {matches}")
+              sig = matches[0]
+              asset = os.path.basename(sig)[: -len(".sig")]
+              return {
+                  "signature": open(sig).read().strip(),
+                  "url": base + urllib.parse.quote(asset),
+              }
+
+          linux = entry("*.AppImage.sig")
+          mac = entry("*.app.tar.gz.sig")
+          manifest = {
+              "version": tag.removeprefix("v"),
+              "notes": "",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "platforms": {
+                  "linux-x86_64": linux,
+                  "linux-x86_64-appimage": linux,
+                  "darwin-aarch64": mac,
+                  "darwin-aarch64-app": mac,
+              },
+          }
+          json.dump(manifest, open("latest.json", "w"), indent=2)
+
+      - name: Upload latest.json
+        run: gh release upload "$GITHUB_REF_NAME" latest.json --repo "$GITHUB_REPOSITORY" --clobber
