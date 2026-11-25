@@ -8,13 +8,6 @@ use crate::types::{CachedBuild, Config, PublicState};
 
 const CONFIG_FILE: &str = "config.json";
 
-fn default_config() -> Config {
-    Config {
-        active_tag: None,
-        builds: vec![],
-    }
-}
-
 pub struct ConfigStore {
     data_dir: PathBuf,
     config_path: PathBuf,
@@ -32,7 +25,7 @@ impl ConfigStore {
     pub async fn load(&self) -> Config {
         let raw = match fs::read_to_string(&self.config_path).await {
             Ok(s) => s,
-            Err(_) => return default_config(),
+            Err(_) => return Config::default(),
         };
         match serde_json::from_str::<serde_json::Value>(&raw) {
             Ok(v) => {
@@ -45,9 +38,16 @@ impl ConfigStore {
                             .collect()
                     })
                     .unwrap_or_default();
-                Config { active_tag, builds }
+                let train = serde_json::from_value(v["train"].clone()).ok();
+                let pending_reload = v["pendingReload"].as_str().map(|s| s.to_string());
+                Config {
+                    active_tag,
+                    builds,
+                    train,
+                    pending_reload,
+                }
             }
-            Err(_) => default_config(),
+            Err(_) => Config::default(),
         }
     }
 
@@ -115,6 +115,9 @@ impl ConfigStore {
             active_path,
             data_dir: self.data_dir.to_string_lossy().into_owned(),
             builds: config.builds.clone(),
+            train: config.train.clone(),
+            pending_reload: config.pending_reload.clone(),
+            last_train_check: None,
         }
     }
 }
@@ -145,6 +148,7 @@ mod tests {
                 channel: crate::types::Channel::Stable,
                 downloaded_at: "2026-01-01T00:00:00Z".to_string(),
             }],
+            ..Config::default()
         };
         store.save(&config).await.unwrap();
 
@@ -153,13 +157,57 @@ mod tests {
         assert_eq!(reloaded.builds.len(), 1);
     }
 
+    #[tokio::test]
+    async fn round_trips_train_and_pending_reload() {
+        let dir = tempdir().unwrap();
+        let store = ConfigStore::new(dir.path());
+        let config = Config {
+            train: Some(crate::types::Train {
+                kind: crate::types::TrainKind::Nightly,
+                keep_last: Some(3),
+            }),
+            pending_reload: Some("nightly-1".to_string()),
+            ..Config::default()
+        };
+        store.save(&config).await.unwrap();
+
+        let reloaded = ConfigStore::new(dir.path()).load().await;
+        assert_eq!(reloaded, config);
+    }
+
+    #[tokio::test]
+    async fn config_without_train_loads_with_train_off() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"activeTag":"v1.0.0","builds":[]}"#,
+        )
+        .unwrap();
+        let config = ConfigStore::new(dir.path()).load().await;
+        assert_eq!(config.active_tag.as_deref(), Some("v1.0.0"));
+        assert!(config.train.is_none());
+        assert!(config.pending_reload.is_none());
+    }
+
+    #[tokio::test]
+    async fn unknown_train_kind_loads_as_off() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"builds":[],"train":{"kind":"weekly"}}"#,
+        )
+        .unwrap();
+        let config = ConfigStore::new(dir.path()).load().await;
+        assert!(config.train.is_none());
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn file_permissions_are_0600() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempdir().unwrap();
         let store = ConfigStore::new(dir.path());
-        store.save(&Config { active_tag: None, builds: vec![] }).await.unwrap();
+        store.save(&Config::default()).await.unwrap();
 
         let meta = std::fs::metadata(dir.path().join("config.json")).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o600);
@@ -169,7 +217,7 @@ mod tests {
     async fn to_public_state_has_no_token_field() {
         let dir = tempdir().unwrap();
         let store = ConfigStore::new(dir.path());
-        let config = Config { active_tag: None, builds: vec![] };
+        let config = Config::default();
         let state = store.to_public_state(&config, None);
         let serialized = serde_json::to_string(&state).unwrap();
         assert!(!serialized.contains("token"));

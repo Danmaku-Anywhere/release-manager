@@ -1,7 +1,7 @@
 use release_manager_core::{
     error::RmError,
     manager::ReleaseManager,
-    types::{PublicState, ReleaseAsset},
+    types::{PublicState, ReleaseAsset, Train},
 };
 
 type State<'a> = tauri::State<'a, ReleaseManager>;
@@ -29,6 +29,21 @@ pub async fn set_active(state: State<'_>, tag: String) -> Result<PublicState, Rm
 #[tauri::command]
 pub async fn remove_build(state: State<'_>, tag: String) -> Result<PublicState, RmError> {
     state.remove_build(&tag).await
+}
+
+#[tauri::command]
+pub async fn set_train(state: State<'_>, train: Option<Train>) -> Result<PublicState, RmError> {
+    state.set_train(train).await
+}
+
+#[tauri::command]
+pub async fn check_train(state: State<'_>) -> Result<PublicState, RmError> {
+    state.check_train().await
+}
+
+#[tauri::command]
+pub async fn dismiss_reload(state: State<'_>) -> Result<PublicState, RmError> {
+    state.dismiss_reload().await
 }
 
 const EXTENSIONS_PAGE: &str = "chrome://extensions";

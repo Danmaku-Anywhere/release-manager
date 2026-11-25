@@ -8,7 +8,10 @@ use crate::cache::{download_build, reconcile_builds, remove_build};
 use crate::error::RmError;
 use crate::github::fetch_releases;
 use crate::store::ConfigStore;
-use crate::types::{Config, PublicState, ReleaseAsset};
+use crate::train::{builds_to_prune, newest_release};
+use crate::types::{Config, PublicState, ReleaseAsset, Train, TrainCheck, TrainCheckStatus};
+
+const MAX_RELEASE_PAGES: u32 = 10;
 
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/Danmaku-Anywhere/danmaku-anywhere/releases";
@@ -36,6 +39,8 @@ pub struct ReleaseManager {
     client: reqwest::Client,
     in_flight: Arc<Mutex<HashSet<String>>>,
     config_lock: tokio::sync::Mutex<()>,
+    train_lock: tokio::sync::Mutex<()>,
+    last_train_check: Mutex<Option<TrainCheck>>,
 }
 
 // RAII guard: removes the tag from in_flight on drop, even if the future is cancelled.
@@ -71,6 +76,8 @@ impl ReleaseManager {
             client,
             in_flight: Arc::new(Mutex::new(HashSet::new())),
             config_lock: tokio::sync::Mutex::new(()),
+            train_lock: tokio::sync::Mutex::new(()),
+            last_train_check: Mutex::new(None),
         }
     }
 
@@ -80,7 +87,9 @@ impl ReleaseManager {
             let config = self.store.load().await;
             self.reconcile_config(config).await
         };
-        self.store.to_public_state(&config, None)
+        let mut state = self.store.to_public_state(&config, None);
+        state.last_train_check = self.last_train_check.lock().unwrap().clone();
+        state
     }
 
     // Called with config_lock held.
@@ -112,6 +121,7 @@ impl ReleaseManager {
             } else {
                 None
             },
+            ..config
         };
         let _ = self.store.save(&reconciled).await;
         reconciled
@@ -125,7 +135,13 @@ impl ReleaseManager {
 
     pub async fn download_build(&self, tag: &str) -> Result<PublicState, RmError> {
         validate_tag(tag)?;
+        let _guard = self.claim_download(tag)?;
+        let asset = self.find_release(tag).await?;
+        self.install(&asset).await?;
+        Ok(self.get_state().await)
+    }
 
+    fn claim_download(&self, tag: &str) -> Result<InFlightGuard, RmError> {
         {
             let mut in_flight = self.in_flight.lock().unwrap();
             if in_flight.contains(tag) {
@@ -136,49 +152,54 @@ impl ReleaseManager {
             in_flight.insert(tag.to_string());
         }
 
-        let _guard = InFlightGuard {
+        Ok(InFlightGuard {
             in_flight: Arc::clone(&self.in_flight),
             tag: tag.to_string(),
-        };
-
-        self.do_download(tag).await
+        })
     }
 
-    async fn do_download(&self, tag: &str) -> Result<PublicState, RmError> {
-        // Phase 1: locate the release across pages (network, outside config_lock).
+    async fn search_releases<F>(&self, mut pick: F) -> Result<Option<ReleaseAsset>, RmError>
+    where
+        F: FnMut(&[ReleaseAsset]) -> Option<ReleaseAsset>,
+    {
         let mut page = 1u32;
-        let asset = loop {
+        loop {
             let (releases, raw_count) =
                 fetch_releases(&self.client, &self.github_base, None, page).await?;
-            if let Some(found) = releases.iter().find(|r| r.tag == tag) {
-                break found.clone();
+            if let Some(found) = pick(&releases) {
+                return Ok(Some(found));
             }
-            if raw_count < 100 || page >= 10 {
-                return Err(RmError::NotFound {
-                    message: format!("no release tagged {tag}"),
-                });
+            if raw_count < 100 || page >= MAX_RELEASE_PAGES {
+                return Ok(None);
             }
             page += 1;
-        };
-
-        // Phase 2: download the zip (network + filesystem, outside config_lock).
-        let downloaded = download_build(&self.data_dir, &asset, &self.client, None).await?;
-
-        // Phase 3: record the build and, if it is the active one, refresh active/
-        // under a single config_lock hold so the active tag cannot change between
-        // the decision and the swap.
-        {
-            let _lock = self.config_lock.lock().await;
-            let mut config = self.store.load().await;
-            config.builds.retain(|b| b.tag != tag);
-            config.builds.push(downloaded);
-            self.store.save(&config).await?;
-            if config.active_tag.as_deref() == Some(tag) {
-                set_active(&self.data_dir, tag).await?;
-            }
         }
+    }
 
-        Ok(self.get_state().await)
+    async fn find_release(&self, tag: &str) -> Result<ReleaseAsset, RmError> {
+        self.search_releases(|releases| releases.iter().find(|r| r.tag == tag).cloned())
+            .await?
+            .ok_or_else(|| RmError::NotFound {
+                message: format!("no release tagged {tag}"),
+            })
+    }
+
+    async fn install(&self, asset: &ReleaseAsset) -> Result<(), RmError> {
+        let tag = asset.tag.as_str();
+        let downloaded = download_build(&self.data_dir, asset, &self.client, None).await?;
+
+        // Record the build and, if it is the active one, refresh active/ under a
+        // single config_lock hold so the active tag cannot change between the
+        // decision and the swap.
+        let _lock = self.config_lock.lock().await;
+        let mut config = self.store.load().await;
+        config.builds.retain(|b| b.tag != tag);
+        config.builds.push(downloaded);
+        self.store.save(&config).await?;
+        if config.active_tag.as_deref() == Some(tag) {
+            set_active(&self.data_dir, tag).await?;
+        }
+        Ok(())
     }
 
     pub async fn set_active(&self, tag: &str) -> Result<PublicState, RmError> {
@@ -196,11 +217,141 @@ impl ReleaseManager {
             set_active(&self.data_dir, tag).await?;
 
             let mut updated = config;
+            if updated.active_tag.as_deref() != Some(tag) {
+                updated.train = None;
+            }
             updated.active_tag = Some(tag.to_string());
+            updated.pending_reload = None;
             self.store.save(&updated).await?;
         }
 
         Ok(self.get_state().await)
+    }
+
+    pub async fn set_train(&self, train: Option<Train>) -> Result<PublicState, RmError> {
+        {
+            let _lock = self.config_lock.lock().await;
+            let mut config = self.store.load().await;
+            config.train = train;
+            self.store.save(&config).await?;
+        }
+        *self.last_train_check.lock().unwrap() = None;
+        Ok(self.get_state().await)
+    }
+
+    pub async fn dismiss_reload(&self) -> Result<PublicState, RmError> {
+        {
+            let _lock = self.config_lock.lock().await;
+            let mut config = self.store.load().await;
+            config.pending_reload = None;
+            self.store.save(&config).await?;
+        }
+        Ok(self.get_state().await)
+    }
+
+    pub async fn check_train(&self) -> Result<PublicState, RmError> {
+        let _running = self.train_lock.lock().await;
+        let Some(train) = self.store.load().await.train else {
+            return Ok(self.get_state().await);
+        };
+
+        let outcome = self.follow_train(&train).await;
+        if self.store.load().await.train.as_ref() != Some(&train) {
+            return Ok(self.get_state().await);
+        }
+        let checked_at = chrono::Utc::now().to_rfc3339();
+        let check = match &outcome {
+            Ok(Some((tag, status))) => TrainCheck {
+                checked_at,
+                status: status.clone(),
+                tag: Some(tag.clone()),
+                message: None,
+            },
+            Ok(None) => TrainCheck {
+                checked_at,
+                status: TrainCheckStatus::NotFound,
+                tag: None,
+                message: None,
+            },
+            Err(e) => TrainCheck {
+                checked_at,
+                status: TrainCheckStatus::Failed,
+                tag: None,
+                message: Some(e.to_string()),
+            },
+        };
+        *self.last_train_check.lock().unwrap() = Some(check);
+        outcome?;
+        Ok(self.get_state().await)
+    }
+
+    async fn follow_train(
+        &self,
+        train: &Train,
+    ) -> Result<Option<(String, TrainCheckStatus)>, RmError> {
+        // Releases come newest first, so the first page holding any build on the
+        // train holds its newest one.
+        let newest = self
+            .search_releases(|releases| newest_release(train.kind, releases).cloned())
+            .await?;
+        let Some(newest) = newest else {
+            return Ok(None);
+        };
+        let tag = newest.tag.clone();
+        validate_tag(&tag)?;
+
+        let config = self.store.load().await;
+        let status = if config.active_tag.as_deref() == Some(tag.as_str()) {
+            TrainCheckStatus::UpToDate
+        } else {
+            if !config.builds.iter().any(|b| b.tag == tag) {
+                let _guard = self.claim_download(&tag)?;
+                self.install(&newest).await?;
+            }
+            if !self.activate_for_train(train, &tag).await? {
+                return Ok(None);
+            }
+            TrainCheckStatus::Updated
+        };
+
+        if let Some(keep_last) = train.keep_last {
+            self.prune_train(train, keep_last).await?;
+        }
+        Ok(Some((tag, status)))
+    }
+
+    // The train can be changed or turned off while its build downloads. Then
+    // nothing is swapped and this returns false.
+    async fn activate_for_train(&self, train: &Train, tag: &str) -> Result<bool, RmError> {
+        let _lock = self.config_lock.lock().await;
+        let mut config = self.store.load().await;
+        if config.train.as_ref() != Some(train) {
+            return Ok(false);
+        }
+        set_active(&self.data_dir, tag).await?;
+        config.active_tag = Some(tag.to_string());
+        config.pending_reload = Some(tag.to_string());
+        self.store.save(&config).await?;
+        Ok(true)
+    }
+
+    async fn prune_train(&self, train: &Train, keep_last: u32) -> Result<(), RmError> {
+        let _lock = self.config_lock.lock().await;
+        let mut config = self.store.load().await;
+        let doomed = builds_to_prune(
+            train.kind,
+            keep_last,
+            &config.builds,
+            config.active_tag.as_deref(),
+        );
+        if doomed.is_empty() {
+            return Ok(());
+        }
+        for tag in &doomed {
+            remove_build(&self.data_dir, tag).await?;
+        }
+        config.builds.retain(|b| !doomed.contains(&b.tag));
+        self.store.save(&config).await
     }
 
     pub async fn remove_build(&self, tag: &str) -> Result<PublicState, RmError> {
@@ -257,6 +408,7 @@ mod tests {
                 channel: crate::types::Channel::Stable,
                 downloaded_at: "2026-01-01T00:00:00Z".to_string(),
             }],
+            ..Default::default()
         };
         store.save(&config).await.unwrap();
 
@@ -282,6 +434,7 @@ mod tests {
                 channel: crate::types::Channel::Preview,
                 downloaded_at: "2026-01-01T00:00:00Z".to_string(),
             }],
+            ..Default::default()
         };
         store.save(&config).await.unwrap();
 
@@ -307,6 +460,7 @@ mod tests {
                 channel: crate::types::Channel::Stable,
                 downloaded_at: "2026-01-01T00:00:00Z".to_string(),
             }],
+            ..Default::default()
         };
         store.save(&config).await.unwrap();
 

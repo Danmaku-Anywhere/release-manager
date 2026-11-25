@@ -1,9 +1,23 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use release_manager_core::manager::ReleaseManager;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager};
 
 mod commands;
+
+const TRAIN_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+// The first tick fires at once, so this also covers the startup check.
+async fn follow_train(app: AppHandle) {
+    let mut ticker = tokio::time::interval(TRAIN_CHECK_INTERVAL);
+    loop {
+        ticker.tick().await;
+        let manager = app.state::<ReleaseManager>();
+        let _ = manager.check_train().await;
+        let _ = app.emit("state-changed", manager.get_state().await);
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -31,6 +45,7 @@ pub fn run() {
 
             let manager = ReleaseManager::with_client(data_dir, github_base, client);
             app.manage(manager);
+            tauri::async_runtime::spawn(follow_train(app.handle().clone()));
 
             // The bundle icon only covers the installed app. Set it on the window
             // too so the title bar and switcher show the real icon in dev and on
@@ -50,6 +65,9 @@ pub fn run() {
             commands::download_build,
             commands::set_active,
             commands::remove_build,
+            commands::set_train,
+            commands::check_train,
+            commands::dismiss_reload,
             commands::open_extensions_page,
         ])
         .run(tauri::generate_context!())
