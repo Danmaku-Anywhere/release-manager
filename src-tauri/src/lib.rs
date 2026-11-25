@@ -11,6 +11,7 @@ const TRAIN_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 // The first tick fires at once, so this also covers the startup check.
 async fn follow_train(app: AppHandle) {
     let mut ticker = tokio::time::interval(TRAIN_CHECK_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
         let manager = app.state::<ReleaseManager>();
@@ -40,6 +41,8 @@ pub fn run() {
             // GitHub returns 403 for requests without a User-Agent header.
             let client = reqwest::Client::builder()
                 .user_agent("danmaku-anywhere-release-manager")
+                .connect_timeout(Duration::from_secs(15))
+                .read_timeout(Duration::from_secs(30))
                 .build()
                 .expect("failed to build HTTP client");
 

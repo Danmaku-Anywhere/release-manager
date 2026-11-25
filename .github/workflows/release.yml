@@ -35,6 +35,24 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
     steps:
+      - uses: actions/checkout@v4
+
+      # The updater compares latest.json, which takes its version from the tag,
+      # with the version built into the app. If they differ, installed apps are
+      # offered the same update on every launch.
+      - name: Check the tag matches the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for v in \
+            "$(node -p "require('./package.json').version")" \
+            "$(node -p "require('./src-tauri/tauri.conf.json').version")" \
+            "$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)"; do
+            if [ "$v" != "$tag" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match version $v"
+              exit 1
+            fi
+          done
+
       - name: Create the draft release
         id: create
         env:

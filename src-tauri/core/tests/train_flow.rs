@@ -361,3 +361,31 @@ async fn train_and_pending_reload_survive_a_restart_until_dismissed() {
     assert!(state.pending_reload.is_none());
     assert_eq!(state.train, nightly(Some(2)));
 }
+
+#[tokio::test]
+async fn stable_train_prefers_a_higher_version_over_a_later_backport() {
+    let mut first: Vec<Release> = (0..99)
+        .map(|i| {
+            release(
+                &format!("nightly-{i}"),
+                &format!("1.5.0.{i}"),
+                "2026-11-01T00:00:00Z",
+            )
+        })
+        .collect();
+    first.push(release("v1.4.2", "1.4.2", "2026-10-01T00:00:00Z"));
+    let second = vec![release("v1.5.0", "1.5.0", "2026-02-07T00:00:00Z")];
+    let (_github, dir, manager) = setup(vec![first, second]).await;
+
+    manager
+        .set_train(Some(Train {
+            kind: TrainKind::Stable,
+            keep_last: None,
+        }))
+        .await
+        .unwrap();
+    let state = manager.check_train().await.expect("check");
+
+    assert_eq!(state.active_tag.as_deref(), Some("v1.5.0"));
+    assert_eq!(active_version(dir.path()), "1.5.0");
+}
