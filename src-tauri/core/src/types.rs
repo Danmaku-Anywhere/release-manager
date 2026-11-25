@@ -22,12 +22,51 @@ pub struct CachedBuild {
     pub downloaded_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tag: Option<String>,
     pub builds: Vec<CachedBuild>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub train: Option<Train>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_reload: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrainKind {
+    Stable,
+    Nightly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Train {
+    pub kind: TrainKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_last: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrainCheckStatus {
+    UpToDate,
+    Updated,
+    NotFound,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrainCheck {
+    pub checked_at: String,
+    pub status: TrainCheckStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +78,12 @@ pub struct PublicState {
     pub active_path: Option<String>,
     pub data_dir: String,
     pub builds: Vec<CachedBuild>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub train: Option<Train>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reload: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_train_check: Option<TrainCheck>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

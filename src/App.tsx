@@ -10,7 +10,7 @@ import type { KindFilter } from './components/BuildList.js'
 import { BuildList } from './components/BuildList.js'
 import { TopBar } from './components/TopBar.js'
 import { openFolder } from './shell.js'
-import type { PublicState, ReleaseAsset } from './types.js'
+import type { PublicState, ReleaseAsset, Train } from './types.js'
 import type { Update } from './updater.js'
 import { checkForUpdate, installUpdate, relaunchApp } from './updater.js'
 
@@ -28,6 +28,8 @@ export function App() {
   const [busy, setBusy] = useState<{ tag: string; action: BusyAction }>()
   const [selectedTag, setSelectedTag] = useState<string>()
   const [reloadNeeded, setReloadNeeded] = useState(false)
+  const [trainStopped, setTrainStopped] = useState(false)
+  const [checkingTrain, setCheckingTrain] = useState(false)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<KindFilter>('all')
   const [releasePage, setReleasePage] = useState(1)
@@ -63,6 +65,15 @@ export function App() {
     void loadReleases()
   }, [refreshState, loadReleases])
 
+  useEffect(() => {
+    const unlisten = api.onStateChanged(setState)
+    return () => {
+      void unlisten.then((stop) => {
+        stop()
+      })
+    }
+  }, [])
+
   // The update feed can be unreachable, so a failed check stays silent.
   useEffect(() => {
     void checkForUpdate()
@@ -94,6 +105,10 @@ export function App() {
     }
     return toBuilds(releases, state)
   }, [releases, state])
+
+  function titleOf(tag: string): string {
+    return builds.find((b) => b.tag === tag)?.title ?? tag
+  }
 
   const active = builds.find((b) => b.active)
   const selected =
@@ -132,8 +147,10 @@ export function App() {
       steps.push(['downloading', () => api.downloadBuild(tag)])
     }
     steps.push(['activating', () => api.setActive(tag)])
+    const hadTrain = state?.train !== undefined
     if (await runAction(tag, steps)) {
       setReloadNeeded(true)
+      setTrainStopped(hadTrain && state?.activeTag !== tag)
     }
   }
 
@@ -147,6 +164,30 @@ export function App() {
 
   function showError(error: unknown) {
     setGlobalError(errorMessage(error))
+  }
+
+  async function handleCheckTrain() {
+    setCheckingTrain(true)
+    try {
+      setState(await api.checkTrain())
+    } catch (_error) {
+      await refreshState()
+    } finally {
+      setCheckingTrain(false)
+    }
+  }
+
+  async function handleTrainChange(train: Train | null) {
+    try {
+      setState(await api.setTrain(train))
+    } catch (error) {
+      showError(error)
+      return
+    }
+    if (train) {
+      setTrainStopped(false)
+      await handleCheckTrain()
+    }
   }
 
   function handleOpenExtensions() {
@@ -214,6 +255,14 @@ export function App() {
         active={active}
         activePath={state.activePath}
         reloadNeeded={reloadNeeded}
+        trainStopped={trainStopped}
+        autoReloadTitle={
+          state.pendingReload ? titleOf(state.pendingReload) : undefined
+        }
+        train={state.train}
+        lastTrainCheck={state.lastTrainCheck}
+        checkingTrain={checkingTrain}
+        titleOf={titleOf}
         appUpdateVersion={pendingUpdate?.version}
         appUpdateBusy={updateBusy}
         onOpenExtensions={handleOpenExtensions}
@@ -225,6 +274,16 @@ export function App() {
         onError={showError}
         onDismissReload={() => {
           setReloadNeeded(false)
+          setTrainStopped(false)
+        }}
+        onDismissAutoReload={() => {
+          api.dismissReload().then(setState).catch(showError)
+        }}
+        onTrainChange={(train) => {
+          void handleTrainChange(train)
+        }}
+        onCheckTrain={() => {
+          void handleCheckTrain()
         }}
         onInstallAppUpdate={() => {
           void handleInstallUpdate()

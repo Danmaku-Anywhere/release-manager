@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { PublicState, ReleaseAsset } from './types.js'
+import type { UnlistenFn } from '@tauri-apps/api/event'
+import { listen } from '@tauri-apps/api/event'
+import type { PublicState, ReleaseAsset, Train } from './types.js'
 
 // invoke() rejects with the serialized RmError object {kind, message} rather than
 // a JS Error, so String(err) would show "[object Object]" in the UI. Unwrap it here.
@@ -31,6 +33,26 @@ export async function setActive(tag: string): Promise<PublicState> {
 
 export async function removeBuild(tag: string): Promise<PublicState> {
   return invoke<PublicState>('remove_build', { tag }).catch(unwrapError)
+}
+
+export async function setTrain(train: Train | null): Promise<PublicState> {
+  return invoke<PublicState>('set_train', { train }).catch(unwrapError)
+}
+
+export async function checkTrain(): Promise<PublicState> {
+  return invoke<PublicState>('check_train').catch(unwrapError)
+}
+
+export async function dismissReload(): Promise<PublicState> {
+  return invoke<PublicState>('dismiss_reload').catch(unwrapError)
+}
+
+export function onStateChanged(
+  handler: (state: PublicState) => void
+): Promise<UnlistenFn> {
+  return listen<PublicState>('state-changed', (event) => {
+    handler(event.payload)
+  })
 }
 
 export async function openExtensionsPage(): Promise<void> {

@@ -12,16 +12,27 @@ import Typography from '@mui/material/Typography'
 import { useState } from 'react'
 import type { Build } from '../builds.js'
 import { formatDay } from '../format.js'
+import type { Train, TrainCheck } from '../types.js'
+import { AutoUpdate } from './AutoUpdate.js'
 
 interface TopBarProps {
   active?: Build
   activePath?: string
   reloadNeeded: boolean
+  trainStopped: boolean
+  autoReloadTitle?: string
+  train?: Train
+  lastTrainCheck?: TrainCheck
+  checkingTrain: boolean
+  titleOf: (tag: string) => string
   appUpdateVersion?: string
   appUpdateBusy: boolean
   onOpenExtensions: () => void
   onInstallAppUpdate: () => void
   onDismissReload: () => void
+  onDismissAutoReload: () => void
+  onTrainChange: (train: Train | null) => void
+  onCheckTrain: () => void
   onShowFolder: () => void
   onError: (error: unknown) => void
 }
@@ -30,11 +41,20 @@ export function TopBar({
   active,
   activePath,
   reloadNeeded,
+  trainStopped,
+  autoReloadTitle,
+  train,
+  lastTrainCheck,
+  checkingTrain,
+  titleOf,
   appUpdateVersion,
   appUpdateBusy,
   onOpenExtensions,
   onInstallAppUpdate,
   onDismissReload,
+  onDismissAutoReload,
+  onTrainChange,
+  onCheckTrain,
   onShowFolder,
   onError,
 }: TopBarProps) {
@@ -157,6 +177,25 @@ export function TopBar({
           </Button>
         </Box>
       ) : null}
+      <AutoUpdate
+        train={train}
+        lastCheck={lastTrainCheck}
+        checking={checkingTrain}
+        titleOf={titleOf}
+        onChange={onTrainChange}
+        onCheck={onCheckTrain}
+      />
+      {autoReloadTitle ? (
+        <Alert
+          severity="warning"
+          icon={<RefreshIcon />}
+          onClose={onDismissAutoReload}
+          sx={{ mt: 1.5 }}
+        >
+          Auto update switched to {autoReloadTitle}. Press reload on Danmaku
+          Anywhere in the extensions page to run it.
+        </Alert>
+      ) : null}
       {reloadNeeded ? (
         <Alert
           severity="warning"
@@ -167,6 +206,9 @@ export function TopBar({
           Switched. Press reload on Danmaku Anywhere in the extensions page to
           run it. First time: turn on Developer mode, click Load unpacked and
           pick the folder above.
+          {trainStopped
+            ? ' Auto update is now off, since you picked a build yourself.'
+            : ''}
         </Alert>
       ) : null}
     </Box>
