@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use crate::active::{clear_active, set_active};
+use crate::active::{clear_active, recover_active, set_active};
 use crate::cache::{download_build, reconcile_builds, remove_build};
 use crate::error::RmError;
 use crate::github::fetch_releases;
@@ -94,6 +94,7 @@ impl ReleaseManager {
 
     // Called with config_lock held.
     async fn reconcile_config(&self, config: Config) -> Config {
+        recover_active(&self.data_dir).await;
         let builds = match reconcile_builds(&self.data_dir, config.builds.clone()).await {
             Ok(b) => b,
             Err(_) => return config,
@@ -289,69 +290,69 @@ impl ReleaseManager {
         &self,
         train: &Train,
     ) -> Result<Option<(String, TrainCheckStatus)>, RmError> {
-        // Releases come newest first, so the first page holding any build on the
-        // train holds its newest one.
-        let newest = self
-            .search_releases(|releases| newest_release(train.kind, releases).cloned())
-            .await?;
+        // A backport can be published after a higher version, so the newest
+        // release on the train may sit on any page.
+        let mut on_train = Vec::new();
+        self.search_releases(|releases| {
+            on_train.extend(newest_release(train.kind, releases).cloned());
+            None
+        })
+        .await?;
+        let newest = newest_release(train.kind, &on_train).cloned();
         let Some(newest) = newest else {
             return Ok(None);
         };
         let tag = newest.tag.clone();
         validate_tag(&tag)?;
 
-        let config = self.store.load().await;
-        let status = if config.active_tag.as_deref() == Some(tag.as_str()) {
-            TrainCheckStatus::UpToDate
-        } else {
-            if !config.builds.iter().any(|b| b.tag == tag) {
-                let _guard = self.claim_download(&tag)?;
-                self.install(&newest).await?;
-            }
-            if !self.activate_for_train(train, &tag).await? {
-                return Ok(None);
-            }
-            TrainCheckStatus::Updated
-        };
-
-        if let Some(keep_last) = train.keep_last {
-            self.prune_train(train, keep_last).await?;
+        let cached = self.store.load().await.builds.iter().any(|b| b.tag == tag);
+        if !cached {
+            let _guard = self.claim_download(&tag)?;
+            self.install(&newest).await?;
         }
-        Ok(Some((tag, status)))
+        let status = self.activate_for_train(train, &tag).await?;
+        Ok(status.map(|status| (tag, status)))
     }
 
-    // The train can be changed or turned off while its build downloads. Then
-    // nothing is swapped and this returns false.
-    async fn activate_for_train(&self, train: &Train, tag: &str) -> Result<bool, RmError> {
+    // The train can be changed or turned off while its build downloads, so the
+    // swap and the pruning both check it again under config_lock. When it changed,
+    // nothing is touched and this returns None.
+    async fn activate_for_train(
+        &self,
+        train: &Train,
+        tag: &str,
+    ) -> Result<Option<TrainCheckStatus>, RmError> {
         let _lock = self.config_lock.lock().await;
         let mut config = self.store.load().await;
         if config.train.as_ref() != Some(train) {
-            return Ok(false);
+            return Ok(None);
         }
-        set_active(&self.data_dir, tag).await?;
-        config.active_tag = Some(tag.to_string());
-        config.pending_reload = Some(tag.to_string());
-        self.store.save(&config).await?;
-        Ok(true)
-    }
-
-    async fn prune_train(&self, train: &Train, keep_last: u32) -> Result<(), RmError> {
-        let _lock = self.config_lock.lock().await;
-        let mut config = self.store.load().await;
-        let doomed = builds_to_prune(
-            train.kind,
-            keep_last,
-            &config.builds,
-            config.active_tag.as_deref(),
-        );
-        if doomed.is_empty() {
-            return Ok(());
+        let status = if config.active_tag.as_deref() == Some(tag) {
+            TrainCheckStatus::UpToDate
+        } else {
+            set_active(&self.data_dir, tag).await?;
+            config.active_tag = Some(tag.to_string());
+            config.pending_reload = Some(tag.to_string());
+            self.store.save(&config).await?;
+            TrainCheckStatus::Updated
+        };
+        if let Some(keep_last) = train.keep_last {
+            let doomed = builds_to_prune(
+                train.kind,
+                keep_last,
+                &config.builds,
+                config.active_tag.as_deref(),
+            );
+            for tag in &doomed {
+                validate_tag(tag)?;
+                remove_build(&self.data_dir, tag).await?;
+            }
+            if !doomed.is_empty() {
+                config.builds.retain(|b| !doomed.contains(&b.tag));
+                self.store.save(&config).await?;
+            }
         }
-        for tag in &doomed {
-            remove_build(&self.data_dir, tag).await?;
-        }
-        config.builds.retain(|b| !doomed.contains(&b.tag));
-        self.store.save(&config).await
+        Ok(Some(status))
     }
 
     pub async fn remove_build(&self, tag: &str) -> Result<PublicState, RmError> {
@@ -399,7 +400,9 @@ mod tests {
         let tag = "v1.0.0";
         let cache = cache_dir(&data_dir, tag);
         tokio::fs::create_dir_all(&cache).await.unwrap();
-        tokio::fs::write(cache.join("manifest.json"), r#"{"version":"1.0.0"}"#).await.unwrap();
+        tokio::fs::write(cache.join("manifest.json"), r#"{"version":"1.0.0"}"#)
+            .await
+            .unwrap();
         let config = crate::types::Config {
             active_tag: Some(tag.to_string()),
             builds: vec![crate::types::CachedBuild {
