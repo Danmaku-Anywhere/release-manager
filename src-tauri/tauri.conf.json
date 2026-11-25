@@ -1,6 +1,6 @@
 {
   "productName": "Danmaku Builds",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "identifier": "fish.quin.danmaku-anywhere.release-manager",
   "build": {
     "frontendDist": "../dist",
