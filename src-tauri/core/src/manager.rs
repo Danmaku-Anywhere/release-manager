@@ -222,7 +222,7 @@ impl ReleaseManager {
                 updated.train = None;
             }
             updated.active_tag = Some(tag.to_string());
-            updated.pending_reload = None;
+            updated.pending_reload = Some(tag.to_string());
             self.store.save(&updated).await?;
         }
 

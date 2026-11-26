@@ -296,7 +296,7 @@ async fn picking_a_build_by_hand_turns_the_train_off() {
     manager.download_build("nightly-100").await.unwrap();
     let state = manager.set_active("nightly-100").await.unwrap();
     assert!(state.train.is_none());
-    assert!(state.pending_reload.is_none());
+    assert_eq!(state.pending_reload.as_deref(), Some("nightly-100"));
 
     let requests = github.release_requests();
     let state = manager.check_train().await.expect("check with train off");
