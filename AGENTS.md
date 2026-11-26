@@ -147,12 +147,18 @@ a directory link fails with access denied.
 
 ## Release flow
 
-Bump the version in `src-tauri/tauri.conf.json`, `package.json` and
-`src-tauri/Cargo.toml`, merge, then push a `v<that version>` tag. CI creates a
-draft release, builds Linux, macOS and Windows in parallel into it, and then
-writes `latest.json` from the Linux and macOS update signatures in a final job.
-A human publishes the draft; it then becomes the latest release and the updater
-picks it up. A manual run creates no release but uploads every bundle as
-workflow artifacts, which is the way to try a CI build without tagging. The
+Push a `v<major>.<minor>.<patch>` tag on master; that is the whole release.
+CI stamps the tag's version into `package.json` and `tauri.conf.json` before
+building (`scripts/set-version.cjs`), so the version in the repo files is only
+what local builds report and needs no bump. CI creates a draft release, builds
+Linux, macOS and Windows in parallel into it, and writes `latest.json` from the
+Linux and macOS update signatures. A final job runs `scripts/verify-release.sh`:
+every bundle must be present, `latest.json` must carry the tag's version, and
+each update bundle must verify against the public key in `tauri.conf.json`.
+Only then does it publish the draft as the latest release, which is when the
+updater picks it up. If a build or a check fails, the release stays a draft:
+fix it, delete the draft and the tag, and tag again. A manual run creates no
+release but uploads every bundle as workflow artifacts, which is the way to try
+a CI build without tagging. The
 first install is manual (download the AppImage or dmg from the release);
 self-update covers every version after that.
