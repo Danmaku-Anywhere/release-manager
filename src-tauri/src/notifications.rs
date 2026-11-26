@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use release_manager_core::types::{PublicState, TrainCheckStatus};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -28,6 +28,7 @@ pub enum Kind {
     NewBuild,
 }
 
+#[cfg(target_os = "macos")]
 impl Kind {
     fn id(self) -> &'static str {
         match self {
@@ -40,7 +41,9 @@ impl Kind {
 
 // Clicking a notification does what it is about: install the app update, or
 // open Chrome's extensions page to reload the new build.
+#[cfg(target_os = "macos")]
 pub fn on_click(app: &AppHandle, kind: &str) {
+    use tauri::Emitter;
     if kind == Kind::AppUpdate.id() {
         let _ = app.emit("tray-install-update", ());
     } else if kind == Kind::NewBuild.id() {
