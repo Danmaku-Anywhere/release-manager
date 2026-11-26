@@ -5,7 +5,7 @@
 # public key installed apps trust.
 set -euo pipefail
 
-dir=$1
+dir=$(cd "$1" && pwd)
 version=$2
 root=$(cd "$(dirname "$0")/.." && pwd)
 fail=0
