@@ -1,7 +1,13 @@
 import { getVersion } from '@tauri-apps/api/app'
 import { useCallback, useEffect, useState } from 'react'
 import type { Update } from './updater.js'
-import { checkForUpdate, installUpdate, relaunchApp } from './updater.js'
+import {
+  checkForUpdate,
+  installUpdate,
+  onTrayRequest,
+  relaunchApp,
+  setTrayUpdate,
+} from './updater.js'
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000
 
@@ -51,7 +57,7 @@ export function useAppUpdate(onError: (error: unknown) => void) {
     }
   }, [check])
 
-  async function install() {
+  const install = useCallback(async () => {
     if (!pending) {
       return
     }
@@ -63,7 +69,29 @@ export function useAppUpdate(onError: (error: unknown) => void) {
       onError(error)
       setInstalling(false)
     }
-  }
+  }, [pending, onError])
+
+  useEffect(() => {
+    setTrayUpdate(pending?.version ?? null).catch(onError)
+  }, [pending, onError])
+
+  useEffect(() => {
+    const listeners = [
+      onTrayRequest('check', () => {
+        void check(true)
+      }),
+      onTrayRequest('install', () => {
+        void install()
+      }),
+    ]
+    return () => {
+      for (const listener of listeners) {
+        void listener.then((stop) => {
+          stop()
+        })
+      }
+    }
+  }, [check, install])
 
   return {
     version,

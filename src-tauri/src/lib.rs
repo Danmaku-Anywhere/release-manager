@@ -5,6 +5,9 @@ use release_manager_core::manager::ReleaseManager;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod commands;
+#[cfg(target_os = "macos")]
+mod notify_mac;
+mod tray;
 
 const TRAIN_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
@@ -22,8 +25,19 @@ async fn follow_train(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
+        |app, _args, _cwd| {
+            tray::show_main_window(app);
+        },
+    ));
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    let app = builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![tray::HIDDEN_ARG]),
+        ))
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -62,7 +76,29 @@ pub fn run() {
                 ))?;
                 let _ = window.set_icon(icon);
             }
+
+            let handle = app.handle();
+            #[cfg(target_os = "macos")]
+            notify_mac::init();
+            if let Err(err) = tray::create(handle) {
+                eprintln!("tray icon unavailable, closing the window will quit: {err}");
+            }
+            let start_hidden = std::env::args().any(|arg| arg == tray::HIDDEN_ARG);
+            if start_hidden && tray::has_tray(handle) {
+                tray::hide_main_window(handle);
+            } else {
+                tray::show_main_window(handle);
+            }
+            announce_new_version(handle);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" && tray::has_tray(window.app_handle()) {
+                    api.prevent_close();
+                    tray::hide_main_window(window.app_handle());
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
@@ -74,7 +110,43 @@ pub fn run() {
             commands::check_train,
             commands::dismiss_reload,
             commands::open_extensions_page,
+            tray::set_tray_update,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application")
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Opening the app again from Finder, Spotlight or the Dock while it is
+    // hidden in the menu bar.
+    #[cfg(target_os = "macos")]
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Reopen { .. } = event {
+            tray::show_main_window(handle);
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    app.run(|_, _| {});
+}
+
+// Remembers the last version that ran, so the first start after a self-update
+// can say it happened.
+fn announce_new_version(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let marker = dir.join("last-run-version");
+    let current = app.package_info().version.to_string();
+    let previous = std::fs::read_to_string(&marker).ok();
+    if previous
+        .as_deref()
+        .is_some_and(|prev| prev.trim() != current)
+    {
+        let name = &app.package_info().name;
+        tray::notify(
+            app,
+            &format!("{name} updated to {current}"),
+            "You're on the new version.",
+        );
+    }
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&marker, &current);
 }
