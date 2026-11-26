@@ -84,9 +84,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Restores the cache warm-release-cache.yml saves on master. Tags can't
+      # read each other's caches, so saving one here would be wasted.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}
+          save-if: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -133,9 +137,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Restores the cache warm-release-cache.yml saves on master. Tags can't
+      # read each other's caches, so saving one here would be wasted.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}
+          save-if: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -181,9 +189,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Restores the cache warm-release-cache.yml saves on master. Tags can't
+      # read each other's caches, so saving one here would be wasted.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}
+          save-if: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

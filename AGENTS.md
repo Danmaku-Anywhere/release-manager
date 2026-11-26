@@ -162,3 +162,10 @@ release but uploads every bundle as workflow artifacts, which is the way to try
 a CI build without tagging. The
 first install is manual (download the AppImage or dmg from the release);
 self-update covers every version after that.
+
+Tag runs can only restore Rust caches saved on the default branch, so
+`warm-release-cache.yml` compiles the release profile on master (on pushes that
+touch `src-tauri/`) and saves it under `shared-key: release-<os>`. The release
+jobs restore that key and never save. If the release build's cargo features or
+the `shared-key` change, change both workflows together, or releases go back to
+compiling from scratch.
