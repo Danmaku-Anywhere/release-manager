@@ -4,7 +4,7 @@ name: Warm release caches
 # compiles the release profile on master for the release jobs to start from.
 on:
   push:
-    branches: [master]
+    branches: [ master ]
     paths:
       - "src-tauri/**"
       - ".github/workflows/warm-release-cache.yml"
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest, windows-latest]
+        os: [ ubuntu-22.04, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
