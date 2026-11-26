@@ -1,3 +1,4 @@
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use block2::{DynBlock, RcBlock};
@@ -7,9 +8,13 @@ use objc2::{define_class, msg_send, AllocAnyThread};
 use objc2_foundation::{NSError, NSString};
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
-    UNNotificationPresentationOptions, UNNotificationRequest, UNUserNotificationCenter,
-    UNUserNotificationCenterDelegate,
+    UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse,
+    UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
+
+type ClickHandler = Box<dyn Fn(&str) + Send + Sync>;
+
+static ON_CLICK: OnceLock<ClickHandler> = OnceLock::new();
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -31,6 +36,20 @@ define_class!(
                 .call((UNNotificationPresentationOptions::Banner
                     | UNNotificationPresentationOptions::List,));
         }
+
+        #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+        fn did_receive(
+            &self,
+            _center: &UNUserNotificationCenter,
+            response: &UNNotificationResponse,
+            completion: &DynBlock<dyn Fn()>,
+        ) {
+            let id = response.notification().request().identifier().to_string();
+            if let (Some(on_click), Some((kind, _))) = (ON_CLICK.get(), id.split_once(':')) {
+                on_click(kind);
+            }
+            completion.call(());
+        }
     }
 );
 
@@ -42,7 +61,9 @@ impl Delegate {
 }
 
 // Asks for permission the first time; later launches get the saved answer back.
-pub fn init() {
+// `on_click` gets the kind a notification was shown with when someone clicks it.
+pub fn init(on_click: impl Fn(&str) + Send + Sync + 'static) {
+    let _ = ON_CLICK.set(Box::new(on_click));
     let center = UNUserNotificationCenter::currentNotificationCenter();
     let delegate = Delegate::new();
     center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -60,7 +81,7 @@ pub fn init() {
     );
 }
 
-pub fn show(title: &str, body: &str) {
+pub fn show(kind: &str, title: &str, body: &str) {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(title));
     content.setBody(&NSString::from_str(body));
@@ -68,7 +89,7 @@ pub fn show(title: &str, body: &str) {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    let id = NSString::from_str(&format!("danmaku-builds-{nanos}"));
+    let id = NSString::from_str(&format!("{kind}:{nanos}"));
     let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&id, &content, None);
     UNUserNotificationCenter::currentNotificationCenter()
         .addNotificationRequest_withCompletionHandler(&request, None);

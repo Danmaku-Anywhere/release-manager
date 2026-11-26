@@ -1,7 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { listen } from '@tauri-apps/api/event'
-import type { PublicState, ReleaseAsset, Train } from './types.js'
+import type {
+  NotificationSettings,
+  PublicState,
+  ReleaseAsset,
+  Train,
+} from './types.js'
 
 // invoke() rejects with the serialized RmError object {kind, message} rather than
 // a JS Error, so String(err) would show "[object Object]" in the UI. Unwrap it here.
@@ -57,4 +62,18 @@ export function onStateChanged(
 
 export async function openExtensionsPage(): Promise<void> {
   return invoke<void>('open_extensions_page').catch(unwrapError)
+}
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  return invoke<NotificationSettings>('get_notification_settings').catch(
+    unwrapError
+  )
+}
+
+export async function setNotificationSettings(
+  settings: NotificationSettings
+): Promise<NotificationSettings> {
+  return invoke<NotificationSettings>('set_notification_settings', {
+    settings,
+  }).catch(unwrapError)
 }

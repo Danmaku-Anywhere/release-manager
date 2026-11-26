@@ -44,3 +44,8 @@ export interface PublicState {
   pendingReload?: string
   lastTrainCheck?: TrainCheck
 }
+
+export interface NotificationSettings {
+  appUpdates: boolean
+  newBuilds: boolean
+}

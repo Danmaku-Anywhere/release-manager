@@ -162,26 +162,16 @@ pub fn set_tray_update(app: AppHandle, version: Option<String>) {
         return;
     };
     if let Some(found) = version.as_ref().filter(|v| pending.as_ref() != Some(*v)) {
-        notify(
+        crate::notifications::notify(
             &app,
+            crate::notifications::Kind::AppUpdate,
             &format!("{name} {found} is available"),
             if cfg!(target_os = "macos") {
-                "Choose Update from the menu bar icon to install it."
+                "Click to install it and restart."
             } else {
                 "Choose Update from the tray icon to install it."
             },
         );
     }
     *pending = version;
-}
-
-#[cfg(target_os = "macos")]
-pub fn notify(_app: &AppHandle, title: &str, body: &str) {
-    crate::notify_mac::show(title, body);
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn notify(app: &AppHandle, title: &str, body: &str) {
-    use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title(title).body(body).show();
 }

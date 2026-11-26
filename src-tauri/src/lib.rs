@@ -5,6 +5,7 @@ use release_manager_core::manager::ReleaseManager;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod commands;
+mod notifications;
 #[cfg(target_os = "macos")]
 mod notify_mac;
 mod tray;
@@ -18,7 +19,9 @@ async fn follow_train(app: AppHandle) {
     loop {
         ticker.tick().await;
         let manager = app.state::<ReleaseManager>();
-        let _ = manager.check_train().await;
+        if let Ok(state) = manager.check_train().await {
+            notifications::announce_train_update(&app, &state);
+        }
         let _ = app.emit("state-changed", manager.get_state().await);
     }
 }
@@ -62,6 +65,7 @@ pub fn run() {
 
             let manager = ReleaseManager::with_client(data_dir, github_base, client);
             app.manage(manager);
+            app.manage(notifications::Notifications::load(app.handle()));
             tauri::async_runtime::spawn(follow_train(app.handle().clone()));
 
             // The bundle icon only covers the installed app. Set it on the window
@@ -79,7 +83,10 @@ pub fn run() {
 
             let handle = app.handle();
             #[cfg(target_os = "macos")]
-            notify_mac::init();
+            {
+                let clicked = handle.clone();
+                notify_mac::init(move |kind| notifications::on_click(&clicked, kind));
+            }
             if let Err(err) = tray::create(handle) {
                 eprintln!("tray icon unavailable, closing the window will quit: {err}");
             }
@@ -89,7 +96,7 @@ pub fn run() {
             } else {
                 tray::show_main_window(handle);
             }
-            announce_new_version(handle);
+            notifications::announce_new_version(handle);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -111,6 +118,8 @@ pub fn run() {
             commands::dismiss_reload,
             commands::open_extensions_page,
             tray::set_tray_update,
+            notifications::get_notification_settings,
+            notifications::set_notification_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -125,28 +134,4 @@ pub fn run() {
     });
     #[cfg(not(target_os = "macos"))]
     app.run(|_, _| {});
-}
-
-// Remembers the last version that ran, so the first start after a self-update
-// can say it happened.
-fn announce_new_version(app: &AppHandle) {
-    let Ok(dir) = app.path().app_data_dir() else {
-        return;
-    };
-    let marker = dir.join("last-run-version");
-    let current = app.package_info().version.to_string();
-    let previous = std::fs::read_to_string(&marker).ok();
-    if previous
-        .as_deref()
-        .is_some_and(|prev| prev.trim() != current)
-    {
-        let name = &app.package_info().name;
-        tray::notify(
-            app,
-            &format!("{name} updated to {current}"),
-            "You're on the new version.",
-        );
-    }
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(&marker, &current);
 }
