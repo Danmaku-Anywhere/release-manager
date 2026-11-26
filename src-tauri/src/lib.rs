@@ -55,6 +55,8 @@ pub fn run() {
             // X11 desktops. GNOME Wayland ignores window icons and matches the
             // installed .desktop instead, so dev there still shows a generic icon.
             if let Some(window) = app.get_webview_window("main") {
+                let info = app.package_info();
+                let _ = window.set_title(&format!("{} {}", info.name, info.version));
                 let icon = tauri::image::Image::from_bytes(include_bytes!(
                     "../icons/128x128.png"
                 ))?;
