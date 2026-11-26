@@ -1,0 +1,50 @@
+name: Warm release caches
+
+# Tag builds can only restore caches saved on the default branch, so this
+# compiles the release profile on master for the release jobs to start from.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/warm-release-cache.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: warm-release-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Keep shared-key in step with the build jobs in release.yml.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}
+
+      # tauri::generate_context! needs the frontend folder to exist, not its contents.
+      - name: Stand in for the frontend build
+        shell: bash
+        run: mkdir -p dist
+
+      # The Tauri CLI adds this feature to release builds; without it the
+      # cached tauri crates would not match and get rebuilt.
+      - name: Build the release profile
+        working-directory: src-tauri
+        run: cargo build --release --features tauri/custom-protocol
