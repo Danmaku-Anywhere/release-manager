@@ -5,6 +5,10 @@ use release_manager_core::manager::ReleaseManager;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod commands;
+mod notifications;
+#[cfg(target_os = "macos")]
+mod notify_mac;
+mod tray;
 
 const TRAIN_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
@@ -15,15 +19,28 @@ async fn follow_train(app: AppHandle) {
     loop {
         ticker.tick().await;
         let manager = app.state::<ReleaseManager>();
-        let _ = manager.check_train().await;
+        if let Ok(state) = manager.check_train().await {
+            notifications::announce_train_update(&app, &state);
+        }
         let _ = app.emit("state-changed", manager.get_state().await);
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
+        |app, _args, _cwd| {
+            tray::show_main_window(app);
+        },
+    ));
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    let app = builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![tray::HIDDEN_ARG]),
+        ))
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
@@ -48,6 +65,7 @@ pub fn run() {
 
             let manager = ReleaseManager::with_client(data_dir, github_base, client);
             app.manage(manager);
+            app.manage(notifications::Notifications::load(app.handle()));
             tauri::async_runtime::spawn(follow_train(app.handle().clone()));
 
             // The bundle icon only covers the installed app. Set it on the window
@@ -62,7 +80,32 @@ pub fn run() {
                 ))?;
                 let _ = window.set_icon(icon);
             }
+
+            let handle = app.handle();
+            #[cfg(target_os = "macos")]
+            {
+                let clicked = handle.clone();
+                notify_mac::init(move |kind| notifications::on_click(&clicked, kind));
+            }
+            if let Err(err) = tray::create(handle) {
+                eprintln!("tray icon unavailable, closing the window will quit: {err}");
+            }
+            let start_hidden = std::env::args().any(|arg| arg == tray::HIDDEN_ARG);
+            if start_hidden && tray::has_tray(handle) {
+                tray::hide_main_window(handle);
+            } else {
+                tray::show_main_window(handle);
+            }
+            notifications::announce_new_version(handle);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" && tray::has_tray(window.app_handle()) {
+                    api.prevent_close();
+                    tray::hide_main_window(window.app_handle());
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
@@ -74,7 +117,21 @@ pub fn run() {
             commands::check_train,
             commands::dismiss_reload,
             commands::open_extensions_page,
+            tray::set_tray_update,
+            notifications::get_notification_settings,
+            notifications::set_notification_settings,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application")
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // Opening the app again from Finder, Spotlight or the Dock while it is
+    // hidden in the menu bar.
+    #[cfg(target_os = "macos")]
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Reopen { .. } = event {
+            tray::show_main_window(handle);
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    app.run(|_, _| {});
 }

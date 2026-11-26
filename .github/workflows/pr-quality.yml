@@ -33,3 +33,26 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  windows:
+    name: Rust on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # tauri::generate_context! needs the frontend folder to exist, not its contents.
+      - name: Stand in for the frontend build
+        shell: bash
+        run: mkdir -p dist
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings

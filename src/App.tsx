@@ -17,6 +17,7 @@ import { StatusStrip } from './components/StatusStrip.js'
 import { openFolder } from './shell.js'
 import type { PublicState, ReleaseAsset, Train } from './types.js'
 import { useAppUpdate } from './useAppUpdate.js'
+import { useNotificationSettings } from './useNotificationSettings.js'
 
 const PAGE_SIZE = 100
 
@@ -45,6 +46,7 @@ export function App() {
     setGlobalError(errorMessage(error))
   }, [])
   const appUpdate = useAppUpdate(reportError)
+  const notifications = useNotificationSettings(reportError)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refreshState = useCallback(async () => {
@@ -346,6 +348,8 @@ export function App() {
             onShowSetup={() => {
               setShowSetup(true)
             }}
+            notificationSettings={notifications.settings}
+            onToggleNotification={notifications.toggle}
             onReloadReleases={() => {
               void refreshAll()
             }}

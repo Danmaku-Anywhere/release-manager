@@ -7,8 +7,10 @@ import Link from '@mui/material/Link'
 import ListItemText from '@mui/material/ListItemText'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
+import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
+import type { NotificationSettings } from '../types.js'
 import type { AppUpdateStatus } from '../useAppUpdate.js'
 import { canSelfUpdate } from '../useAppUpdate.js'
 
@@ -19,12 +21,19 @@ const CHECK_LABEL: Record<AppUpdateStatus, string> = {
   failed: 'Check again',
 }
 
+const NOTIFICATION_LABEL: Record<keyof NotificationSettings, string> = {
+  newBuilds: 'Notify me about new extension builds',
+  appUpdates: 'Notify me about app updates',
+}
+
 interface MoreMenuProps {
   appVersion?: string
   appUpdateStatus: AppUpdateStatus
   appUpdateVersion?: string
   appUpdateBusy: boolean
   hasFolder: boolean
+  notificationSettings?: NotificationSettings
+  onToggleNotification: (key: keyof NotificationSettings) => void
   onInstallAppUpdate: () => void
   onCheckAppUpdate: () => void
   onCopyFolder: () => void
@@ -39,6 +48,8 @@ export function MoreMenu({
   appUpdateVersion,
   appUpdateBusy,
   hasFolder,
+  notificationSettings,
+  onToggleNotification,
   onInstallAppUpdate,
   onCheckAppUpdate,
   onCopyFolder,
@@ -98,6 +109,29 @@ export function MoreMenu({
           Show folder
         </MenuItem>
         <MenuItem onClick={run(onShowSetup)}>Chrome setup steps</MenuItem>
+        <Divider />
+        {notificationSettings
+          ? (['newBuilds', 'appUpdates'] as const).map((key) => (
+              <MenuItem
+                key={key}
+                role="menuitemcheckbox"
+                aria-checked={notificationSettings[key]}
+                onClick={() => {
+                  onToggleNotification(key)
+                }}
+              >
+                <ListItemText>{NOTIFICATION_LABEL[key]}</ListItemText>
+                <Switch
+                  size="small"
+                  edge="end"
+                  checked={notificationSettings[key]}
+                  tabIndex={-1}
+                  slotProps={{ input: { 'aria-hidden': true } }}
+                  sx={{ ml: 2, pointerEvents: 'none' }}
+                />
+              </MenuItem>
+            ))
+          : null}
         <Divider />
         <MenuItem onClick={run(onReloadReleases)}>
           <ListItemText>Reload release list</ListItemText>
