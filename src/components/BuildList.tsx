@@ -1,7 +1,5 @@
 import CheckIcon from '@mui/icons-material/Check'
 import ClearIcon from '@mui/icons-material/Clear'
-import DownloadIcon from '@mui/icons-material/Download'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import SearchIcon from '@mui/icons-material/Search'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -9,61 +7,65 @@ import CircularProgress from '@mui/material/CircularProgress'
 import IconButton from '@mui/material/IconButton'
 import InputAdornment from '@mui/material/InputAdornment'
 import List from '@mui/material/List'
-import ListItem from '@mui/material/ListItem'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListSubheader from '@mui/material/ListSubheader'
+import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
-import Tooltip from '@mui/material/Tooltip'
 import Typography from '@mui/material/Typography'
 import type { Ref } from 'react'
 import type { Build, BuildKind } from '../builds.js'
-import { KIND_LABEL, matchesQuery } from '../builds.js'
+import { matchesQuery } from '../builds.js'
 import { formatDay } from '../format.js'
-import type { BusyAction } from './BuildDetail.js'
-import { BUSY_LABEL } from './BuildDetail.js'
-
-const ACTION_WIDTH = 124
 
 export type KindFilter = 'all' | Extract<BuildKind, 'stable' | 'nightly' | 'pr'>
+
+const FILTER_LABEL: Record<KindFilter, string> = {
+  all: 'All',
+  stable: 'Stable',
+  nightly: 'Nightly',
+  pr: 'PRs',
+}
+
+const TAG_LABEL: Partial<Record<BuildKind, string>> = {
+  stable: 'Stable',
+  pr: 'PR',
+  manual: 'Manual',
+  branch: 'Branch',
+  other: 'Preview',
+}
 
 interface BuildListProps {
   builds: Build[]
   selectedTag?: string
-  busy?: { tag: string; action: BusyAction }
-  locked: boolean
+  busyTag?: string
   query: string
   filter: KindFilter
   searchRef: Ref<HTMLInputElement>
   hasMore: boolean
   loadingMore: boolean
-  refreshing: boolean
+  loaded: boolean
   onQueryChange: (query: string) => void
   onFilterChange: (filter: KindFilter) => void
   onSelect: (tag: string) => void
   onUse: (tag: string) => void
   onLoadMore: () => void
-  onRefresh: () => void
 }
 
 export function BuildList({
   builds,
   selectedTag,
-  busy,
-  locked,
+  busyTag,
   query,
   filter,
   searchRef,
   hasMore,
   loadingMore,
-  refreshing,
+  loaded,
   onQueryChange,
   onFilterChange,
   onSelect,
   onUse,
   onLoadMore,
-  onRefresh,
 }: BuildListProps) {
   const shown = builds.filter((b) => {
     if (filter !== 'all' && b.kind !== filter) {
@@ -72,14 +74,19 @@ export function BuildList({
     return matchesQuery(b, query)
   })
   const groups: [string, Build[]][] = [
-    ['Downloaded', shown.filter((b) => b.installed)],
-    ['Available', shown.filter((b) => !b.installed)],
+    ['On this computer', shown.filter((b) => b.installed)],
+    ['On GitHub', shown.filter((b) => !b.installed)],
   ]
+
+  let empty: string | undefined
+  if (shown.length === 0) {
+    empty = loaded ? 'No builds match.' : 'Loading builds…'
+  }
 
   return (
     <Box
       sx={{
-        width: 340,
+        width: 320,
         flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
@@ -87,74 +94,60 @@ export function BuildList({
         borderColor: 'divider',
       }}
     >
-      <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <TextField
-            inputRef={searchRef}
-            fullWidth
-            size="small"
-            value={query}
-            placeholder="Search builds"
-            onChange={(e) => {
-              onQueryChange(e.target.value)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                onQueryChange('')
-              }
-            }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-                endAdornment: query ? (
-                  <InputAdornment position="end">
-                    <IconButton
-                      size="small"
-                      aria-label="Clear search"
-                      onClick={() => {
-                        onQueryChange('')
-                      }}
-                    >
-                      <ClearIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              },
-            }}
-          />
-          <Tooltip title="Reload releases">
-            <span>
-              <IconButton
-                aria-label="Reload releases"
-                disabled={refreshing}
-                onClick={onRefresh}
-              >
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Box>
-        <ToggleButtonGroup
-          size="small"
-          exclusive
+      <Box sx={{ display: 'flex', gap: 1, px: 1.5, pt: 1.5, pb: 1 }}>
+        <TextField
+          inputRef={searchRef}
           fullWidth
-          value={filter}
-          onChange={(_e, value: KindFilter | null) => {
-            if (value) {
-              onFilterChange(value)
+          size="small"
+          value={query}
+          placeholder="Search builds"
+          onChange={(e) => {
+            onQueryChange(e.target.value)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              onQueryChange('')
             }
           }}
-          sx={{ mt: 1.5 }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: query ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    aria-label="Clear search"
+                    onClick={() => {
+                      onQueryChange('')
+                    }}
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            },
+          }}
+        />
+        <TextField
+          select
+          size="small"
+          value={filter}
+          aria-label="Show"
+          onChange={(e) => {
+            onFilterChange(e.target.value as KindFilter)
+          }}
+          sx={{ width: 104, flexShrink: 0 }}
         >
-          <ToggleButton value="all">All</ToggleButton>
-          <ToggleButton value="stable">Stable</ToggleButton>
-          <ToggleButton value="nightly">Nightly</ToggleButton>
-          <ToggleButton value="pr">PRs</ToggleButton>
-        </ToggleButtonGroup>
+          {(Object.keys(FILTER_LABEL) as KindFilter[]).map((k) => (
+            <MenuItem key={k} value={k}>
+              {FILTER_LABEL[k]}
+            </MenuItem>
+          ))}
+        </TextField>
       </Box>
       <List
         disablePadding
@@ -171,25 +164,21 @@ export function BuildList({
                   sx={{
                     bgcolor: 'background.default',
                     color: 'text.secondary',
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 600,
-                    letterSpacing: 0.6,
-                    textTransform: 'uppercase',
                     lineHeight: '32px',
                     px: 1,
                   }}
                 >
-                  {name} · {items.length}
+                  {name}
                 </ListSubheader>
                 {items.map((build) => (
-                  <BuildListItem
+                  <BuildRow
                     key={build.tag}
                     build={build}
                     selected={build.tag === selectedTag}
-                    busyAction={
-                      busy?.tag === build.tag ? busy.action : undefined
-                    }
-                    locked={locked}
+                    busy={build.tag === busyTag}
+                    showKind={filter === 'all'}
                     onSelect={onSelect}
                     onUse={onUse}
                   />
@@ -198,13 +187,13 @@ export function BuildList({
             </li>
           )
         })}
-        {shown.length === 0 ? (
+        {empty ? (
           <Typography
             variant="body2"
             color="text.secondary"
             sx={{ p: 2, textAlign: 'center' }}
           >
-            No builds match.
+            {empty}
           </Typography>
         ) : null}
         {hasMore ? (
@@ -219,107 +208,107 @@ export function BuildList({
   )
 }
 
-interface BuildListItemProps {
+interface BuildRowProps {
   build: Build
   selected: boolean
-  busyAction?: BusyAction
-  locked: boolean
+  busy: boolean
+  showKind: boolean
   onSelect: (tag: string) => void
   onUse: (tag: string) => void
 }
 
-function BuildListItem({
-  build,
-  selected,
-  busyAction,
-  locked,
-  onSelect,
-  onUse,
-}: BuildListItemProps) {
-  const date = build.publishedAt ?? build.downloadedAt
-
-  let action = null
-  if (busyAction) {
-    action = (
-      <Typography
-        variant="caption"
-        color="primary"
+function RowMark({ build, busy }: { build: Build; busy: boolean }) {
+  if (busy) {
+    return <CircularProgress size={12} />
+  }
+  if (build.active) {
+    return (
+      <Box
+        aria-label="Active"
         sx={{
-          width: ACTION_WIDTH,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 0.75,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          bgcolor: 'success.main',
         }}
-      >
-        <CircularProgress size={12} />
-        {BUSY_LABEL[busyAction]}
-      </Typography>
-    )
-  } else if (build.active) {
-    action = (
-      <Typography
-        variant="caption"
-        color="success.main"
-        sx={{
-          width: ACTION_WIDTH,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 0.5,
-          fontWeight: 600,
-        }}
-      >
-        <CheckIcon fontSize="inherit" />
-        In use
-      </Typography>
-    )
-  } else {
-    action = (
-      <Button
-        size="small"
-        variant={build.installed ? 'text' : 'outlined'}
-        startIcon={build.installed ? undefined : <DownloadIcon />}
-        disabled={locked}
-        sx={{ width: ACTION_WIDTH, whiteSpace: 'nowrap' }}
-        onClick={() => {
-          onSelect(build.tag)
-          onUse(build.tag)
-        }}
-      >
-        {build.installed ? 'Use' : 'Get and use'}
-      </Button>
+      />
     )
   }
+  if (build.installed) {
+    return (
+      <CheckIcon
+        aria-label="Downloaded"
+        sx={{ fontSize: 14, color: 'text.secondary' }}
+      />
+    )
+  }
+  return null
+}
+
+function BuildRow({
+  build,
+  selected,
+  busy,
+  showKind,
+  onSelect,
+  onUse,
+}: BuildRowProps) {
+  const date = build.publishedAt ?? build.downloadedAt
+  const kindTag = showKind ? TAG_LABEL[build.kind] : undefined
 
   return (
-    <ListItem
-      disablePadding
-      secondaryAction={action}
-      sx={{ '& .MuiListItemSecondaryAction-root': { right: 8 } }}
+    <ListItemButton
+      selected={selected}
+      onClick={() => {
+        onSelect(build.tag)
+      }}
+      onDoubleClick={() => {
+        if (!build.active) {
+          onUse(build.tag)
+        }
+      }}
+      sx={{ borderRadius: 1, height: 38, gap: 1.25, px: 1 }}
     >
-      <ListItemButton
-        selected={selected}
-        onClick={() => {
-          onSelect(build.tag)
+      <Box
+        sx={{
+          width: 14,
+          display: 'flex',
+          justifyContent: 'center',
+          flexShrink: 0,
         }}
-        sx={{ borderRadius: 1, py: 0.75, pr: 17 }}
       >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {build.title}
-          </Typography>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            noWrap
-            sx={{ display: 'block' }}
-          >
-            {KIND_LABEL[build.kind]}
-            {date ? ` · ${formatDay(date)}` : ''}
-          </Typography>
-        </Box>
-      </ListItemButton>
-    </ListItem>
+        <RowMark build={build} busy={busy} />
+      </Box>
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{ flex: 1, minWidth: 0, fontWeight: 550, fontSize: 14 }}
+      >
+        {build.title}
+      </Typography>
+      {kindTag ? (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 0.5,
+            px: 0.625,
+            lineHeight: '18px',
+            flexShrink: 0,
+          }}
+        >
+          {kindTag}
+        </Typography>
+      ) : null}
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ width: 48, textAlign: 'right', flexShrink: 0 }}
+      >
+        {date ? formatDay(date) : ''}
+      </Typography>
+    </ListItemButton>
   )
 }

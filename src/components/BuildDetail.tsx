@@ -1,31 +1,52 @@
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlineOutlined'
 import DownloadIcon from '@mui/icons-material/Download'
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
-import CircularProgress from '@mui/material/CircularProgress'
+import IconButton from '@mui/material/IconButton'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
+import { useState } from 'react'
 import type { Build } from '../builds.js'
 import { KIND_LABEL } from '../builds.js'
 import { formatAbsolute, formatRelative } from '../format.js'
 
 export type BusyAction = 'downloading' | 'activating' | 'removing'
 
+export const BUSY_LABEL: Record<BusyAction, string> = {
+  downloading: 'Downloading…',
+  activating: 'Switching…',
+  removing: 'Removing…',
+}
+
 interface BuildDetailProps {
   build: Build
   busy?: BusyAction
   locked: boolean
   error?: string
+  waitingForReload: boolean
+  followingLabel?: string
   onUse: (tag: string) => void
   onDownload: (tag: string) => void
   onRemove: (tag: string) => void
+  onCopyTag: (tag: string) => void
 }
 
-export const BUSY_LABEL: Record<BusyAction, string> = {
-  downloading: 'Downloading…',
-  activating: 'Switching…',
-  removing: 'Deleting…',
+function statusOf(build: Build, waitingForReload: boolean): string {
+  if (build.active) {
+    return waitingForReload
+      ? 'in the folder, waiting for a Chrome reload'
+      : 'active'
+  }
+  return build.installed ? 'downloaded' : 'not downloaded'
+}
+
+function actionLabel(build: Build, busy?: BusyAction): string {
+  if (busy) {
+    return BUSY_LABEL[busy]
+  }
+  return build.installed ? 'Use' : 'Get and use'
 }
 
 export function BuildDetail({
@@ -33,63 +54,116 @@ export function BuildDetail({
   busy,
   locked,
   error,
+  waitingForReload,
+  followingLabel,
   onUse,
   onDownload,
   onRemove,
+  onCopyTag,
 }: BuildDetailProps) {
-  const status = build.installed ? 'downloaded' : 'not downloaded'
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+  const kindPrefix =
+    build.kind === 'nightly' ? '' : `${KIND_LABEL[build.kind]} · `
+
+  function closeMenu() {
+    setMenuAnchor(null)
+  }
 
   return (
-    <Box sx={{ maxWidth: 640 }}>
-      <Typography variant="overline" color="text.secondary">
-        {KIND_LABEL[build.kind]} · {status}
-      </Typography>
-      <Typography variant="h1">{build.title}</Typography>
+    <Box sx={{ maxWidth: 620 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Typography variant="h1" sx={{ flex: 1, minWidth: 0 }}>
+          {build.title}
+        </Typography>
+        <IconButton
+          aria-label="More actions"
+          disabled={locked}
+          onClick={(e) => {
+            setMenuAnchor(e.currentTarget)
+          }}
+        >
+          <MoreHorizIcon />
+        </IconButton>
+      </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-        Version {build.version}
+        {kindPrefix}
+        {build.version}
         {build.publishedAt ? (
           <span title={formatAbsolute(build.publishedAt)}>
             {' '}
             · built {formatRelative(build.publishedAt)}
           </span>
         ) : null}
-        {build.title !== build.tag ? ` · ${build.tag}` : ''}
+        {' · '}
+        {statusOf(build, waitingForReload)}
       </Typography>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 3 }}>
-        <PrimaryAction
-          build={build}
-          busy={busy}
-          locked={locked}
-          onUse={onUse}
-        />
-        {!build.installed ? (
+      {build.active ? null : (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2.5 }}>
           <Button
-            disabled={locked}
+            variant="contained"
+            startIcon={build.installed ? undefined : <DownloadIcon />}
+            loading={busy === 'downloading' || busy === 'activating'}
+            loadingPosition="start"
+            disabled={locked && busy === undefined}
             onClick={() => {
+              onUse(build.tag)
+            }}
+          >
+            {actionLabel(build, busy)}
+          </Button>
+        </Box>
+      )}
+      <Menu
+        open={menuAnchor !== null}
+        anchorEl={menuAnchor}
+        onClose={closeMenu}
+      >
+        {build.installed ? null : (
+          <MenuItem
+            onClick={() => {
+              closeMenu()
               onDownload(build.tag)
             }}
           >
             Download only
-          </Button>
-        ) : null}
+          </MenuItem>
+        )}
         {build.installed && !build.active ? (
-          <Button
-            color="error"
-            disabled={locked}
+          <MenuItem
             onClick={() => {
+              closeMenu()
               onRemove(build.tag)
             }}
+            sx={{ color: 'error.main' }}
           >
-            Delete
-          </Button>
+            Remove downloaded copy
+          </MenuItem>
         ) : null}
-        {busy === 'removing' ? (
-          <Typography variant="body2" color="text.secondary">
-            {BUSY_LABEL.removing}
-          </Typography>
-        ) : null}
-      </Box>
+        <MenuItem
+          onClick={() => {
+            closeMenu()
+            onCopyTag(build.tag)
+          }}
+        >
+          Copy release tag
+        </MenuItem>
+      </Menu>
+      {busy === 'removing' ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          {BUSY_LABEL.removing}
+        </Typography>
+      ) : null}
+      {followingLabel && !build.active ? (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          component="p"
+          sx={{ mt: 1 }}
+        >
+          Using a build yourself turns off following {followingLabel}.
+        </Typography>
+      ) : null}
 
       {error ? (
         <Alert severity="error" sx={{ mt: 2 }}>
@@ -99,56 +173,16 @@ export function BuildDetail({
 
       {build.notes.length > 0 ? (
         <Box sx={{ mt: 4 }}>
-          <Typography variant="h3">What's in it</Typography>
-          <Box component="ul" sx={{ mt: 1.5, pl: 2.5, '& li': { mb: 0.75 } }}>
+          <Typography variant="h5">What's in it</Typography>
+          <Box component="ul" sx={{ mt: 1.5, pl: 2.5, '& li': { mb: 1 } }}>
             {build.notes.map((note) => (
               <li key={note}>
-                <Typography variant="body1" color="text.secondary">
-                  {note}
-                </Typography>
+                <Typography variant="body1">{note}</Typography>
               </li>
             ))}
           </Box>
         </Box>
       ) : null}
     </Box>
-  )
-}
-
-interface PrimaryActionProps {
-  build: Build
-  busy?: BusyAction
-  locked: boolean
-  onUse: (tag: string) => void
-}
-
-function PrimaryAction({ build, busy, locked, onUse }: PrimaryActionProps) {
-  if (build.active) {
-    return (
-      <Chip icon={<CheckCircleOutlineIcon />} label="In use" color="success" />
-    )
-  }
-  if (busy === 'downloading' || busy === 'activating') {
-    return (
-      <Button
-        variant="contained"
-        disabled
-        startIcon={<CircularProgress size={14} color="primary" />}
-      >
-        {BUSY_LABEL[busy]}
-      </Button>
-    )
-  }
-  return (
-    <Button
-      variant="contained"
-      startIcon={build.installed ? undefined : <DownloadIcon />}
-      disabled={locked}
-      onClick={() => {
-        onUse(build.tag)
-      }}
-    >
-      {build.installed ? 'Use' : 'Get and use'}
-    </Button>
   )
 }
