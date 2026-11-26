@@ -3,6 +3,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import SyncIcon from '@mui/icons-material/Sync'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -13,6 +14,8 @@ import { useState } from 'react'
 import type { Build } from '../builds.js'
 import { formatDay } from '../format.js'
 import type { Train, TrainCheck } from '../types.js'
+import type { AppUpdateStatus } from '../useAppUpdate.js'
+import { canSelfUpdate } from '../useAppUpdate.js'
 import { AutoUpdate } from './AutoUpdate.js'
 
 interface TopBarProps {
@@ -25,16 +28,84 @@ interface TopBarProps {
   lastTrainCheck?: TrainCheck
   checkingTrain: boolean
   titleOf: (tag: string) => string
+  appVersion?: string
+  appUpdateStatus: AppUpdateStatus
   appUpdateVersion?: string
   appUpdateBusy: boolean
   onOpenExtensions: () => void
   onInstallAppUpdate: () => void
+  onCheckAppUpdate: () => void
   onDismissReload: () => void
   onDismissAutoReload: () => void
   onTrainChange: (train: Train | null) => void
   onCheckTrain: () => void
   onShowFolder: () => void
   onError: (error: unknown) => void
+}
+
+const CHECK_LABEL: Record<AppUpdateStatus, string> = {
+  idle: 'Check for updates',
+  checking: 'Checking',
+  upToDate: 'Up to date',
+  failed: 'Check again',
+}
+
+interface AppVersionProps {
+  version?: string
+  status: AppUpdateStatus
+  updateVersion?: string
+  installing: boolean
+  onCheck: () => void
+  onInstall: () => void
+}
+
+function AppUpdateButton({
+  status,
+  updateVersion,
+  installing,
+  onCheck,
+  onInstall,
+}: Omit<AppVersionProps, 'version'>) {
+  if (updateVersion) {
+    return (
+      <Button
+        size="small"
+        color="success"
+        startIcon={<SystemUpdateAltIcon />}
+        loading={installing}
+        onClick={onInstall}
+      >
+        Update to {updateVersion}
+      </Button>
+    )
+  }
+  if (!canSelfUpdate) {
+    return null
+  }
+  return (
+    <Button
+      size="small"
+      startIcon={<SyncIcon />}
+      loading={status === 'checking'}
+      loadingPosition="start"
+      onClick={onCheck}
+    >
+      {CHECK_LABEL[status]}
+    </Button>
+  )
+}
+
+function AppVersion({ version, ...update }: AppVersionProps) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      {version ? (
+        <Typography variant="body2" color="text.secondary" noWrap>
+          App {version}
+        </Typography>
+      ) : null}
+      <AppUpdateButton {...update} />
+    </Box>
+  )
 }
 
 export function TopBar({
@@ -47,10 +118,13 @@ export function TopBar({
   lastTrainCheck,
   checkingTrain,
   titleOf,
+  appVersion,
+  appUpdateStatus,
   appUpdateVersion,
   appUpdateBusy,
   onOpenExtensions,
   onInstallAppUpdate,
+  onCheckAppUpdate,
   onDismissReload,
   onDismissAutoReload,
   onTrainChange,
@@ -112,17 +186,14 @@ export function TopBar({
             </Typography>
           )}
         </Box>
-        {appUpdateVersion ? (
-          <Button
-            size="small"
-            color="success"
-            startIcon={<SystemUpdateAltIcon />}
-            loading={appUpdateBusy}
-            onClick={onInstallAppUpdate}
-          >
-            Update app to {appUpdateVersion}
-          </Button>
-        ) : null}
+        <AppVersion
+          version={appVersion}
+          status={appUpdateStatus}
+          updateVersion={appUpdateVersion}
+          installing={appUpdateBusy}
+          onCheck={onCheckAppUpdate}
+          onInstall={onInstallAppUpdate}
+        />
         <Button
           variant="outlined"
           startIcon={<OpenInNewIcon />}

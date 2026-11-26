@@ -11,8 +11,7 @@ import { BuildList } from './components/BuildList.js'
 import { TopBar } from './components/TopBar.js'
 import { openFolder } from './shell.js'
 import type { PublicState, ReleaseAsset, Train } from './types.js'
-import type { Update } from './updater.js'
-import { checkForUpdate, installUpdate, relaunchApp } from './updater.js'
+import { useAppUpdate } from './useAppUpdate.js'
 
 const PAGE_SIZE = 100
 
@@ -36,8 +35,10 @@ export function App() {
   const [hasMoreReleases, setHasMoreReleases] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null)
-  const [updateBusy, setUpdateBusy] = useState(false)
+  const reportError = useCallback((error: unknown) => {
+    setGlobalError(errorMessage(error))
+  }, [])
+  const appUpdate = useAppUpdate(reportError)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refreshState = useCallback(async () => {
@@ -72,15 +73,6 @@ export function App() {
         stop()
       })
     }
-  }, [])
-
-  // The update feed can be unreachable, so a failed check stays silent.
-  useEffect(() => {
-    void checkForUpdate()
-      .then(setPendingUpdate)
-      .catch((_err: unknown) => {
-        return undefined
-      })
   }, [])
 
   // The window is a webview, so the browser's Ctrl/Cmd+F find is unavailable.
@@ -194,20 +186,6 @@ export function App() {
     api.openExtensionsPage().catch(showError)
   }
 
-  async function handleInstallUpdate() {
-    if (!pendingUpdate) {
-      return
-    }
-    setUpdateBusy(true)
-    try {
-      await installUpdate(pendingUpdate)
-      await relaunchApp()
-    } catch (error) {
-      setGlobalError(errorMessage(error))
-      setUpdateBusy(false)
-    }
-  }
-
   async function handleLoadMore() {
     const nextPage = releasePage + 1
     setLoadingMore(true)
@@ -263,8 +241,10 @@ export function App() {
         lastTrainCheck={state.lastTrainCheck}
         checkingTrain={checkingTrain}
         titleOf={titleOf}
-        appUpdateVersion={pendingUpdate?.version}
-        appUpdateBusy={updateBusy}
+        appVersion={appUpdate.version}
+        appUpdateStatus={appUpdate.status}
+        appUpdateVersion={appUpdate.pendingVersion}
+        appUpdateBusy={appUpdate.installing}
         onOpenExtensions={handleOpenExtensions}
         onShowFolder={() => {
           if (state.activePath) {
@@ -286,7 +266,10 @@ export function App() {
           void handleCheckTrain()
         }}
         onInstallAppUpdate={() => {
-          void handleInstallUpdate()
+          void appUpdate.install()
+        }}
+        onCheckAppUpdate={() => {
+          void appUpdate.check()
         }}
       />
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
