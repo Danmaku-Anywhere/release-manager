@@ -13,9 +13,10 @@ tests and the release flow are in `AGENTS.md`.
 | Dev        | `pnpm dev`                    |
 | Type check | `pnpm type-check`             |
 | Lint       | `pnpm lint`                   |
-| Test       | `pnpm test` (Rust core tests) |
+| Test       | `pnpm test` (Rust core tests, then vitest) |
 
-Use mise for Node and pnpm, and rustup for Rust.
+Use mise for Node (pinned in `mise.toml`); pnpm comes from `packageManager` in
+`package.json`. Use rustup for Rust.
 
 ## Conventions
 

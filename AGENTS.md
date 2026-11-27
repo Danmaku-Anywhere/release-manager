@@ -31,7 +31,10 @@ releases from the extension repo and publishes its own releases here.
   plugin. There is no HTTP server.
 - `src-tauri/` is a two-crate Cargo workspace:
   - `core/` (`release-manager-core`): pure logic with no Tauri dependency
-    (`github`, `cache`, `active`, `store`, `manager`, `types`, `error`). All
+    (`github`, `cache`, `active`, `store`, `manager`, `menu`, `train`, `types`,
+    `error`). `menu` turns the cached builds into the entries of the tray's
+    build-switching submenu; `train` decides which release a train follows and
+    which old builds to prune. All
     fallible ops return `Result<T, RmError>`; `RmError` serializes to
     `{ kind, message }` (and `status` for `auth`), matching what the UI renders.
     Keeping this crate Tauri-free means its tests run without the webkit system
@@ -39,11 +42,20 @@ releases from the extension repo and publishes its own releases here.
   - the app crate (`release-manager`): Tauri commands (thin wrappers over the
     manager behind a `tokio::sync::Mutex`), plugin registration, and startup
     wiring in `src/lib.rs`.
+- Tray and background mode: where a tray icon is available, closing the main
+  window hides it instead of quitting, and the app can start hidden
+  (`--hidden`, passed by open at login). The tray menu shows the window, applies
+  a pending app update, switches the active build and toggles open at login.
+  Without a tray, closing the window quits.
+- Release trains: a stored `Train` (`stable` or `nightly`, optional `keep_last`)
+  makes the app check on startup and on demand for the newest release on that
+  train, download it if missing, make it active, and prune older builds on the
+  train except the active one.
 
 ## Commands (JS `invoke`)
 
-`get_state`, `list_releases` (paged, 100 per page), `download_build`,
-`set_active`, `remove_build`. There is no GitHub token: the repo is public and
+The registered commands are the `generate_handler!` list in
+`src-tauri/src/lib.rs`. There is no GitHub token: the repo is public and
 unauthenticated requests suffice.
 
 ## Toolchain prerequisites
@@ -86,10 +98,11 @@ unauthenticated requests suffice.
 
 ## Tests
 
-- `pnpm test` runs `cargo test -p release-manager-core` (the webkit-free unit
-  tests plus the full-flow integration e2e in `core/tests/e2e_flow.rs`, which
-  drives the manager against an in-process fake GitHub server and asserts real
-  filesystem state). This is the primary agentic verification.
+- `pnpm test` runs `test:rust` and `test:ui`. `test:rust` is `cargo test -p
+  release-manager-core` (the webkit-free unit tests plus the full-flow
+  integration e2e in `core/tests/e2e_flow.rs`, which drives the manager against
+  an in-process fake GitHub server and asserts real filesystem state). `test:ui`
+  is `vitest run`. This is the primary agentic verification.
 - The app crate compiles and boots only with the webkit libraries present. A
   headless boot smoke is `xvfb-run -a` the built debug binary with a throwaway
   `DA_RELEASE_MANAGER_DIR`.
@@ -150,7 +163,8 @@ a directory link fails with access denied.
 Push a `v<major>.<minor>.<patch>` tag on master; that is the whole release.
 CI stamps the tag's version into `package.json` and `tauri.conf.json` before
 building (`scripts/set-version.cjs`), so the version in the repo files is only
-what local builds report and needs no bump. CI creates a draft release, builds
+what local builds report and needs no bump. A first job fails the run unless the commit is an ancestor of `origin/master`,
+for tags and manual runs alike, before anything signs. CI creates a draft release, builds
 Linux, macOS and Windows in parallel into it, and writes `latest.json` from the
 Linux and macOS update signatures. A final job runs `scripts/verify-release.sh`:
 every bundle must be present, `latest.json` must carry the tag's version, and
