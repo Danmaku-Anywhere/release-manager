@@ -4,6 +4,10 @@ use release_manager_core::{
     types::{PublicState, ReleaseAsset, Train},
 };
 
+use tauri::AppHandle;
+
+use crate::tray::refresh_builds;
+
 type State<'a> = tauri::State<'a, ReleaseManager>;
 
 #[tauri::command]
@@ -17,18 +21,30 @@ pub async fn list_releases(state: State<'_>, page: Option<u32>) -> Result<Vec<Re
 }
 
 #[tauri::command]
-pub async fn download_build(state: State<'_>, tag: String) -> Result<PublicState, RmError> {
-    state.download_build(&tag).await
+pub async fn download_build(
+    app: AppHandle,
+    state: State<'_>,
+    tag: String,
+) -> Result<PublicState, RmError> {
+    state.download_build(&tag).await.inspect(|state| refresh_builds(&app, state))
 }
 
 #[tauri::command]
-pub async fn set_active(state: State<'_>, tag: String) -> Result<PublicState, RmError> {
-    state.set_active(&tag).await
+pub async fn set_active(
+    app: AppHandle,
+    state: State<'_>,
+    tag: String,
+) -> Result<PublicState, RmError> {
+    state.set_active(&tag).await.inspect(|state| refresh_builds(&app, state))
 }
 
 #[tauri::command]
-pub async fn remove_build(state: State<'_>, tag: String) -> Result<PublicState, RmError> {
-    state.remove_build(&tag).await
+pub async fn remove_build(
+    app: AppHandle,
+    state: State<'_>,
+    tag: String,
+) -> Result<PublicState, RmError> {
+    state.remove_build(&tag).await.inspect(|state| refresh_builds(&app, state))
 }
 
 #[tauri::command]
@@ -37,8 +53,8 @@ pub async fn set_train(state: State<'_>, train: Option<Train>) -> Result<PublicS
 }
 
 #[tauri::command]
-pub async fn check_train(state: State<'_>) -> Result<PublicState, RmError> {
-    state.check_train().await
+pub async fn check_train(app: AppHandle, state: State<'_>) -> Result<PublicState, RmError> {
+    state.check_train().await.inspect(|state| refresh_builds(&app, state))
 }
 
 #[tauri::command]

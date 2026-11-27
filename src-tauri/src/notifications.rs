@@ -26,6 +26,7 @@ pub enum Kind {
     AppUpdate,
     AppUpdated,
     NewBuild,
+    SwitchFailed,
 }
 
 #[cfg(target_os = "macos")]
@@ -35,6 +36,7 @@ impl Kind {
             Kind::AppUpdate => "app-update",
             Kind::AppUpdated => "app-updated",
             Kind::NewBuild => "new-build",
+            Kind::SwitchFailed => "switch-failed",
         }
     }
 }
@@ -103,6 +105,7 @@ pub fn notify(app: &AppHandle, kind: Kind, title: &str, body: &str) {
     let wanted = match kind {
         Kind::AppUpdate | Kind::AppUpdated => settings.app_updates,
         Kind::NewBuild => settings.new_builds,
+        Kind::SwitchFailed => true,
     };
     if wanted {
         show(app, kind, title, body);

@@ -22,7 +22,9 @@ async fn follow_train(app: AppHandle) {
         if let Ok(state) = manager.check_train().await {
             notifications::announce_train_update(&app, &state);
         }
-        let _ = app.emit("state-changed", manager.get_state().await);
+        let state = manager.get_state().await;
+        tray::refresh_builds(&app, &state);
+        let _ = app.emit("state-changed", state);
     }
 }
 

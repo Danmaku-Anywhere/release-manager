@@ -1,4 +1,7 @@
-use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use release_manager_core::manager::ReleaseManager;
+use release_manager_core::menu::switch_entries;
+use release_manager_core::types::PublicState;
+use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Wry};
 use tauri_plugin_autostart::ManagerExt;
@@ -10,12 +13,15 @@ const SHOW: &str = "show";
 const UPDATE: &str = "update";
 const LOGIN: &str = "login";
 const QUIT: &str = "quit";
+const BUILDS: &str = "builds";
+const SWITCH_PREFIX: &str = "switch:";
 
 // Only exists once the tray icon is up. Without a tray there is no way back to
 // a hidden window, so closing the window quits as it used to.
 pub struct Tray {
     update: MenuItem<Wry>,
     pending_update: std::sync::Mutex<Option<String>>,
+    builds: Submenu<Wry>,
 }
 
 pub fn has_tray(app: &AppHandle) -> bool {
@@ -54,6 +60,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, QUIT, format!("Quit {name}"), true, None::<&str>)?;
+    let builds = Submenu::with_id(app, BUILDS, "Switch build", true)?;
 
     let menu = Menu::with_items(app, &[&show])?;
     // The Windows build has no update bundle to install.
@@ -61,6 +68,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         menu.append(&update)?;
     }
     menu.append_items(&[
+        &PredefinedMenuItem::separator(app)?,
+        &builds,
         &PredefinedMenuItem::separator(app)?,
         &login,
         &PredefinedMenuItem::separator(app)?,
@@ -105,8 +114,67 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     app.manage(Tray {
         update,
         pending_update: std::sync::Mutex::new(None),
+        builds,
+    });
+
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = handle.state::<ReleaseManager>().get_state().await;
+        refresh_builds(&handle, &state);
     });
     Ok(())
+}
+
+pub fn refresh_builds(app: &AppHandle, state: &PublicState) {
+    let Some(tray) = app.try_state::<Tray>() else {
+        return;
+    };
+    if let Err(err) = fill_builds(app, &tray.builds, state) {
+        eprintln!("could not update the tray build list: {err}");
+    }
+}
+
+fn fill_builds(app: &AppHandle, submenu: &Submenu<Wry>, state: &PublicState) -> tauri::Result<()> {
+    for item in submenu.items()? {
+        submenu.remove(&item)?;
+    }
+    let entries = switch_entries(state);
+    if entries.is_empty() {
+        submenu.append(&MenuItem::new(app, "No downloaded builds", false, None::<&str>)?)?;
+    }
+    for entry in entries {
+        submenu.append(&CheckMenuItem::with_id(
+            app,
+            format!("{SWITCH_PREFIX}{}", entry.tag),
+            entry.label,
+            true,
+            entry.active,
+            None::<&str>,
+        )?)?;
+    }
+    Ok(())
+}
+
+fn switch_to(app: &AppHandle, tag: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let manager = app.state::<ReleaseManager>();
+        // Picking the active build again would copy it over itself and ask for
+        // another Chrome reload, so it only puts the check mark back.
+        if manager.get_state().await.active_tag.as_deref() != Some(tag.as_str()) {
+            if let Err(err) = manager.set_active(&tag).await {
+                crate::notifications::notify(
+                    &app,
+                    crate::notifications::Kind::SwitchFailed,
+                    "Could not switch builds",
+                    &err.to_string(),
+                );
+            }
+        }
+        let state = manager.get_state().await;
+        refresh_builds(&app, &state);
+        let _ = app.emit("state-changed", state);
+    });
 }
 
 fn on_menu_event(app: &AppHandle, event: &MenuEvent, login: &CheckMenuItem<Wry>) {
@@ -137,7 +205,11 @@ fn on_menu_event(app: &AppHandle, event: &MenuEvent, login: &CheckMenuItem<Wry>)
             }
         }
         QUIT => app.exit(0),
-        _ => {}
+        id => {
+            if let Some(tag) = id.strip_prefix(SWITCH_PREFIX) {
+                switch_to(app, tag.to_string());
+            }
+        }
     }
 }
 
