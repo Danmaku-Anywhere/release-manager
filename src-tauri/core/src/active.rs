@@ -8,6 +8,8 @@ use crate::error::RmError;
 const ACTIVE_DIR: &str = "active";
 const NEXT_DIR: &str = "active.next";
 const PREV_DIR: &str = "active.prev";
+// Unpacked extension builds read this to notice they were swapped and reload themselves.
+const BUILD_MARKER: &str = "build.json";
 
 fn swap_error(e: std::io::Error) -> RmError {
     RmError::Swap {
@@ -165,6 +167,11 @@ pub async fn set_active(data_dir: &Path, tag: &str) -> Result<String, RmError> {
         let _ = remove_any(&next).await;
         return Err(e);
     }
+    let marker = serde_json::json!({ "tag": tag }).to_string();
+    if let Err(e) = fs::write(next.join(BUILD_MARKER), marker).await {
+        let _ = remove_any(&next).await;
+        return Err(swap_error(e));
+    }
 
     remove_any(&prev).await?;
     match fs::symlink_metadata(&dir).await {
@@ -280,6 +287,24 @@ mod tests {
             untouched, "one",
             "removing the link must not touch its target"
         );
+    }
+
+    #[tokio::test]
+    async fn set_active_marks_the_folder_with_its_tag() {
+        let dir = tempdir().unwrap();
+        let data_dir = dir.path();
+        setup_cache(data_dir, "v1", "one").await;
+        setup_cache(data_dir, "v2", "two").await;
+
+        set_active(data_dir, "v1").await.unwrap();
+        set_active(data_dir, "v2").await.unwrap();
+
+        let marker = fs::read_to_string(active_path(data_dir).join(BUILD_MARKER))
+            .await
+            .unwrap();
+        let marker: serde_json::Value = serde_json::from_str(&marker).unwrap();
+        assert_eq!(marker, serde_json::json!({ "tag": "v2" }));
+        assert!(!data_dir.join("cache").join("v2").join(BUILD_MARKER).exists());
     }
 
     #[tokio::test]
