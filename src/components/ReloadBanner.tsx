@@ -49,7 +49,8 @@ export function ReloadBanner({
         <Box component="b" sx={{ color: 'text.primary' }}>
           {title}
         </Box>
-        . Reload Danmaku Anywhere in Chrome to run it.
+        . Danmaku Anywhere reloads itself within a minute. If it doesn't, reload
+        it in Chrome.
         {autoUpdateStopped ? (
           <Box component="span" sx={{ color: 'text.secondary', ml: 1.5 }}>
             Auto update is now off.{' '}
