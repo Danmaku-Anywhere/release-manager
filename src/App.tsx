@@ -289,6 +289,7 @@ export function App() {
     detail = (
       <BuildDetail
         build={selected}
+        builds={builds}
         busy={busy?.tag === selected.tag ? busy.action : undefined}
         locked={busy !== undefined}
         error={errors[selected.tag]}

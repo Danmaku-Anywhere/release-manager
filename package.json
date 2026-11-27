@@ -9,7 +9,9 @@
     "type-check": "tsgo --noEmit",
     "lint": "biome check --fix",
     "lint:ci": "biome ci",
-    "test": "cargo test -p release-manager-core --manifest-path src-tauri/Cargo.toml",
+    "test": "pnpm test:rust && pnpm test:ui",
+    "test:rust": "cargo test -p release-manager-core --manifest-path src-tauri/Cargo.toml",
+    "test:ui": "vitest run",
     "prepare": "lefthook install"
   },
   "dependencies": {
@@ -35,7 +37,8 @@
     "@vitejs/plugin-react": "^6.1.2",
     "lefthook": "^2.2.1",
     "typescript": "^6.0.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "vitest": "^5.1.2"
   },
   "packageManager": "pnpm@11.2.2"
 }
