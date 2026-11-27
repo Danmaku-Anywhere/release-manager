@@ -18,6 +18,7 @@ import { openFolder } from './shell.js'
 import type { PublicState, ReleaseAsset, Train } from './types.js'
 import { useAppUpdate } from './useAppUpdate.js'
 import { useNotificationSettings } from './useNotificationSettings.js'
+import { useOpenAtLogin } from './useOpenAtLogin.js'
 
 const PAGE_SIZE = 100
 
@@ -47,6 +48,7 @@ export function App() {
   }, [])
   const appUpdate = useAppUpdate(reportError)
   const notifications = useNotificationSettings(reportError)
+  const openAtLogin = useOpenAtLogin(reportError)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const refreshState = useCallback(async () => {
@@ -351,6 +353,8 @@ export function App() {
             }}
             notificationSettings={notifications.settings}
             onToggleNotification={notifications.toggle}
+            openAtLogin={openAtLogin.enabled}
+            onToggleOpenAtLogin={openAtLogin.toggle}
             onReloadReleases={() => {
               void refreshAll()
             }}

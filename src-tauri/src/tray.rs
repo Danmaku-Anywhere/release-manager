@@ -13,6 +13,7 @@ const SHOW: &str = "show";
 const UPDATE: &str = "update";
 const LOGIN: &str = "login";
 const QUIT: &str = "quit";
+const OPEN_AT_LOGIN_EVENT: &str = "open-at-login-changed";
 const BUILDS: &str = "builds";
 const SWITCH_PREFIX: &str = "switch:";
 
@@ -22,6 +23,7 @@ pub struct Tray {
     update: MenuItem<Wry>,
     pending_update: std::sync::Mutex<Option<String>>,
     builds: Submenu<Wry>,
+    login: CheckMenuItem<Wry>,
 }
 
 pub fn has_tray(app: &AppHandle) -> bool {
@@ -79,7 +81,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(name)
         .menu(&menu)
-        .on_menu_event(move |app, event| on_menu_event(app, &event, &login));
+        .on_menu_event(|app, event| on_menu_event(app, &event));
 
     #[cfg(target_os = "macos")]
     let builder = builder
@@ -115,6 +117,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         update,
         pending_update: std::sync::Mutex::new(None),
         builds,
+        login,
     });
 
     let handle = app.clone();
@@ -177,7 +180,7 @@ fn switch_to(app: &AppHandle, tag: String) {
     });
 }
 
-fn on_menu_event(app: &AppHandle, event: &MenuEvent, login: &CheckMenuItem<Wry>) {
+fn on_menu_event(app: &AppHandle, event: &MenuEvent) {
     match event.id().as_ref() {
         SHOW => show_main_window(app),
         UPDATE => {
@@ -192,17 +195,12 @@ fn on_menu_event(app: &AppHandle, event: &MenuEvent, login: &CheckMenuItem<Wry>)
             }
         }
         LOGIN => {
-            // The menu has already flipped the check mark by the time this runs.
-            let want = login.is_checked().unwrap_or(false);
-            let autolaunch = app.autolaunch();
-            let result = if want {
-                autolaunch.enable()
-            } else {
-                autolaunch.disable()
+            let Some(tray) = app.try_state::<Tray>() else {
+                return;
             };
-            if result.is_err() {
-                let _ = login.set_checked(!want);
-            }
+            // The menu has already flipped the check mark by the time this runs.
+            let want = tray.login.is_checked().unwrap_or(false);
+            let _ = set_open_at_login(app.clone(), want);
         }
         QUIT => app.exit(0),
         id => {
@@ -211,6 +209,27 @@ fn on_menu_event(app: &AppHandle, event: &MenuEvent, login: &CheckMenuItem<Wry>)
             }
         }
     }
+}
+
+#[tauri::command]
+pub fn get_open_at_login(app: AppHandle) -> bool {
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn set_open_at_login(app: AppHandle, enabled: bool) -> Result<bool, String> {
+    let autolaunch = app.autolaunch();
+    let result = if enabled {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    };
+    let now = get_open_at_login(app.clone());
+    if let Some(tray) = app.try_state::<Tray>() {
+        let _ = tray.login.set_checked(now);
+    }
+    let _ = app.emit(OPEN_AT_LOGIN_EVENT, now);
+    result.map(|()| now).map_err(|err| err.to_string())
 }
 
 #[tauri::command]

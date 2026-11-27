@@ -26,6 +26,28 @@ const NOTIFICATION_LABEL: Record<keyof NotificationSettings, string> = {
   appUpdates: 'Notify me about app updates',
 }
 
+interface ToggleItemProps {
+  label: string
+  checked: boolean
+  onToggle: () => void
+}
+
+function ToggleItem({ label, checked, onToggle }: ToggleItemProps) {
+  return (
+    <MenuItem role="menuitemcheckbox" aria-checked={checked} onClick={onToggle}>
+      <ListItemText>{label}</ListItemText>
+      <Switch
+        size="small"
+        edge="end"
+        checked={checked}
+        tabIndex={-1}
+        slotProps={{ input: { 'aria-hidden': true } }}
+        sx={{ ml: 2, pointerEvents: 'none' }}
+      />
+    </MenuItem>
+  )
+}
+
 interface MoreMenuProps {
   appVersion?: string
   appUpdateStatus: AppUpdateStatus
@@ -34,6 +56,8 @@ interface MoreMenuProps {
   hasFolder: boolean
   notificationSettings?: NotificationSettings
   onToggleNotification: (key: keyof NotificationSettings) => void
+  openAtLogin?: boolean
+  onToggleOpenAtLogin: () => void
   onInstallAppUpdate: () => void
   onCheckAppUpdate: () => void
   onCopyFolder: () => void
@@ -50,6 +74,8 @@ export function MoreMenu({
   hasFolder,
   notificationSettings,
   onToggleNotification,
+  openAtLogin,
+  onToggleOpenAtLogin,
   onInstallAppUpdate,
   onCheckAppUpdate,
   onCopyFolder,
@@ -110,26 +136,23 @@ export function MoreMenu({
         </MenuItem>
         <MenuItem onClick={run(onShowSetup)}>Chrome setup steps</MenuItem>
         <Divider />
+        {openAtLogin === undefined ? null : (
+          <ToggleItem
+            label="Open at login"
+            checked={openAtLogin}
+            onToggle={onToggleOpenAtLogin}
+          />
+        )}
         {notificationSettings
           ? (['newBuilds', 'appUpdates'] as const).map((key) => (
-              <MenuItem
+              <ToggleItem
                 key={key}
-                role="menuitemcheckbox"
-                aria-checked={notificationSettings[key]}
-                onClick={() => {
+                label={NOTIFICATION_LABEL[key]}
+                checked={notificationSettings[key]}
+                onToggle={() => {
                   onToggleNotification(key)
                 }}
-              >
-                <ListItemText>{NOTIFICATION_LABEL[key]}</ListItemText>
-                <Switch
-                  size="small"
-                  edge="end"
-                  checked={notificationSettings[key]}
-                  tabIndex={-1}
-                  slotProps={{ input: { 'aria-hidden': true } }}
-                  sx={{ ml: 2, pointerEvents: 'none' }}
-                />
-              </MenuItem>
+              />
             ))
           : null}
         <Divider />
