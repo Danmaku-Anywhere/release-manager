@@ -8,8 +8,8 @@ import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
-import type { Build } from '../builds.js'
-import { KIND_LABEL } from '../builds.js'
+import type { Build, BuildChanges } from '../builds.js'
+import { changesBetween, KIND_LABEL } from '../builds.js'
 import { formatAbsolute, formatRelative } from '../format.js'
 
 export type BusyAction = 'downloading' | 'activating' | 'removing'
@@ -22,6 +22,7 @@ export const BUSY_LABEL: Record<BusyAction, string> = {
 
 interface BuildDetailProps {
   build: Build
+  builds: Build[]
   busy?: BusyAction
   locked: boolean
   error?: string
@@ -31,6 +32,13 @@ interface BuildDetailProps {
   onDownload: (tag: string) => void
   onRemove: (tag: string) => void
   onCopyTag: (tag: string) => void
+}
+
+const DEFAULT_HEADING = "What's in it"
+
+const CHANGES_HEADING: Record<BuildChanges['direction'], string> = {
+  newer: 'Changes since your build',
+  older: "Changes you'd lose",
 }
 
 function statusOf(build: Build, waitingForReload: boolean): string {
@@ -51,6 +59,7 @@ function actionLabel(build: Build, busy?: BusyAction): string {
 
 export function BuildDetail({
   build,
+  builds,
   busy,
   locked,
   error,
@@ -62,6 +71,17 @@ export function BuildDetail({
   onCopyTag,
 }: BuildDetailProps) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+  const changes = build.active
+    ? undefined
+    : changesBetween(
+        builds,
+        builds.find((b) => b.active),
+        build
+      )
+  const notes = changes?.notes ?? build.notes
+  const notesHeading = changes
+    ? CHANGES_HEADING[changes.direction]
+    : DEFAULT_HEADING
   const kindPrefix =
     build.kind === 'nightly' ? '' : `${KIND_LABEL[build.kind]} · `
 
@@ -171,11 +191,11 @@ export function BuildDetail({
         </Alert>
       ) : null}
 
-      {build.notes.length > 0 ? (
+      {notes.length > 0 ? (
         <Box sx={{ mt: 4 }}>
-          <Typography variant="h5">What's in it</Typography>
+          <Typography variant="h5">{notesHeading}</Typography>
           <Box component="ul" sx={{ mt: 1.5, pl: 2.5, '& li': { mb: 1 } }}>
-            {build.notes.map((note) => (
+            {notes.map((note) => (
               <li key={note}>
                 <Typography variant="body1">{note}</Typography>
               </li>

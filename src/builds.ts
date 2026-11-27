@@ -108,3 +108,51 @@ export function matchesQuery(build: Build, query: string): boolean {
     s.toLowerCase().includes(needle)
   )
 }
+
+export interface BuildChanges {
+  direction: 'newer' | 'older'
+  notes: string[]
+}
+
+function isMasterBuild(build: Build): boolean {
+  return build.kind === 'stable' || build.kind === 'nightly'
+}
+
+export function changesBetween(
+  builds: Build[],
+  active: Build | undefined,
+  shown: Build
+): BuildChanges | undefined {
+  if (!active || !isMasterBuild(active) || !isMasterBuild(shown)) {
+    return undefined
+  }
+  if (!active.publishedAt || !shown.publishedAt) {
+    return undefined
+  }
+  if (active.publishedAt === shown.publishedAt) {
+    return undefined
+  }
+
+  const direction = shown.publishedAt > active.publishedAt ? 'newer' : 'older'
+  const from = direction === 'newer' ? active.publishedAt : shown.publishedAt
+  const to = direction === 'newer' ? shown.publishedAt : active.publishedAt
+
+  const inRange = builds
+    .filter((b) => {
+      return (
+        isMasterBuild(b) &&
+        b.publishedAt !== undefined &&
+        b.publishedAt > from &&
+        b.publishedAt <= to
+      )
+    })
+    .sort((a, b) => {
+      return (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '')
+    })
+
+  const notes = [...new Set(inRange.flatMap((b) => b.notes))]
+  if (notes.length === 0) {
+    return undefined
+  }
+  return { direction, notes }
+}
