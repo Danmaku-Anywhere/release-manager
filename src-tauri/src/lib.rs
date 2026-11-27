@@ -120,6 +120,8 @@ pub fn run() {
             commands::dismiss_reload,
             commands::open_extensions_page,
             tray::set_tray_update,
+            tray::get_open_at_login,
+            tray::set_open_at_login,
             notifications::get_notification_settings,
             notifications::set_notification_settings,
         ])

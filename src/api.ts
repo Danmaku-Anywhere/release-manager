@@ -77,3 +77,19 @@ export async function setNotificationSettings(
     settings,
   }).catch(unwrapError)
 }
+
+export async function getOpenAtLogin(): Promise<boolean> {
+  return invoke<boolean>('get_open_at_login')
+}
+
+export async function setOpenAtLogin(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>('set_open_at_login', { enabled })
+}
+
+export function onOpenAtLoginChanged(
+  handler: (enabled: boolean) => void
+): Promise<UnlistenFn> {
+  return listen<boolean>('open-at-login-changed', (event) => {
+    handler(event.payload)
+  })
+}
