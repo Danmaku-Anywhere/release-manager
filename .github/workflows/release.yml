@@ -44,8 +44,8 @@ jobs:
 
       - name: Check the commit is on master
         run: |
-          git fetch origin master
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+          git fetch origin +refs/heads/master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master; then
             echo "::error::$GITHUB_SHA is not on master, refusing to build or sign it"
             exit 1
           fi

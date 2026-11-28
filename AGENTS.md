@@ -163,8 +163,10 @@ a directory link fails with access denied.
 Push a `v<major>.<minor>.<patch>` tag on master; that is the whole release.
 CI stamps the tag's version into `package.json` and `tauri.conf.json` before
 building (`scripts/set-version.cjs`), so the version in the repo files is only
-what local builds report and needs no bump. A first job fails the run unless the commit is an ancestor of `origin/master`,
-for tags and manual runs alike, before anything signs. CI creates a draft release, builds
+what local builds report and needs no bump. A release tag must point at a commit on master that contains
+the master-ancestry gate (the workflow runs from the tagged revision, so an older
+commit has no gate), and the `release-manager-signing` environment now only
+accepts master and `v*` tags. CI creates a draft release, builds
 Linux, macOS and Windows in parallel into it, and writes `latest.json` from the
 Linux and macOS update signatures. A final job runs `scripts/verify-release.sh`:
 every bundle must be present, `latest.json` must carry the tag's version, and
