@@ -123,6 +123,7 @@ impl FakeGithub {
     }
 
     fn manager(&self, data_dir: &Path) -> ReleaseManager {
+        release_manager_core::ensure_crypto_provider();
         let client = reqwest::Client::builder()
             .user_agent("train-test")
             .build()

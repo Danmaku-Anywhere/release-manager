@@ -59,6 +59,7 @@ impl Drop for InFlightGuard {
 
 impl ReleaseManager {
     pub fn new(data_dir: PathBuf, github_base: Option<String>) -> Self {
+        crate::ensure_crypto_provider();
         Self::with_client(data_dir, github_base, reqwest::Client::new())
     }
 
