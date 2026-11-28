@@ -36,7 +36,12 @@ fn unzip_to_map(bytes: &[u8]) -> Result<HashMap<String, Vec<u8>>, RmError> {
         let mut file = archive.by_index(i).map_err(|e| RmError::Invalid {
             message: e.to_string(),
         })?;
-        let name = file.name().to_string();
+        let name = file
+            .name()
+            .map_err(|e| RmError::Invalid {
+                message: e.to_string(),
+            })?
+            .to_string();
         if name.ends_with('/') {
             continue;
         }
