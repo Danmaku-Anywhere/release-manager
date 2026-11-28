@@ -10,7 +10,7 @@ A self-updating desktop app (Tauri 2) that downloads extension builds from the `
 - `src-tauri/core/` (`release-manager-core`) is pure logic with no Tauri dependency, so its tests run without the webkit libraries. Fallible ops return `Result<T, RmError>`; `RmError` serializes to `{ kind, message }` (and `status` for `auth`), matching what the UI renders.
 - `src-tauri/src/` is the app crate: thin Tauri commands over the manager behind a `tokio::sync::Mutex`. The registered commands are the `generate_handler!` list in `src-tauri/src/lib.rs`.
 - Where a tray is available, closing the window hides it and the app can start hidden (`--hidden`, passed by open at login). Without a tray, closing quits.
-- Release trains: a stored `Train` (`stable` or `nightly`, optional `keep_last`) makes the app check for the newest release on that train, download it, make it active and prune older builds except the active one.
+- Release trains: a stored `Train` (`stable` or `nightly`, optional `keep_last`) makes the app check for the newest release on that train, download it, make it active. Only when `keep_last` is set does it prune: it keeps the newest `keep_last` builds on that train and spares the active one.
 
 ## Toolchain prerequisites
 
@@ -52,6 +52,6 @@ Read once at startup, no test backdoors: `DA_RELEASE_MANAGER_DIR` (default `~/.d
 
 Push a `v<major>.<minor>.<patch>` tag on master. CI stamps the tag's version into `package.json` and `tauri.conf.json` (`scripts/set-version.cjs`), so repo files need no bump. A release tag must point at a commit on master that contains the master-ancestry gate (the workflow runs from the tagged revision, so an older commit has no gate), and the `release-manager-signing` environment now only accepts master and `v*` tags.
 
-The release stays a draft until `scripts/verify-release.sh` passes, and only then is it published as latest, which is when the updater picks it up. If a build or check fails, delete the draft and the tag and tag again. A manual run creates no release; it uploads the AppImage, DMG, installer and portable exe as workflow artifacts. The first install is manual; self-update covers the rest.
+The release stays a draft until `scripts/verify-release.sh` passes, and only then is it published as latest, which is when the updater picks it up. If a build or check fails, delete the draft and the tag and tag again. A manual run works only from master (a branch with commits not on master fails the gate). It creates no release; it uploads the AppImage, DMG, installer and portable exe as workflow artifacts. The first install is manual; self-update covers the rest.
 
 `warm-release-cache.yml` compiles the release profile on master and saves it under `shared-key: release-<os>`, because tag runs can only restore caches saved on the default branch. The release jobs restore that key and never save. If the release build's cargo features or the `shared-key` change, change both workflows together.
