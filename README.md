@@ -9,7 +9,9 @@ the extensions page.
 
 Downloads are on the [releases page](https://github.com/Danmaku-Anywhere/release-manager/releases):
 an AppImage for Linux, a dmg for Apple Silicon Macs, and an installer or
-portable executable for Windows. Linux and macOS update themselves.
+portable executable for Windows. Linux and macOS update themselves. The portable
+executable does not install WebView2, which Windows 11 already has; on older Windows use
+the installer.
 
 The macOS build is not notarized. The first time, allow it under System
 Settings > Privacy & Security.

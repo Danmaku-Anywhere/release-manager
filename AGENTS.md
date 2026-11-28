@@ -2,113 +2,34 @@
 
 ## Purpose
 
-A standalone, self-updating desktop app (Tauri 2) that downloads extension
-release/preview builds from the `Danmaku-Anywhere/danmaku-anywhere` GitHub releases and
-manages which cached build is the "active" unpacked folder loaded into
-`chrome://extensions`. Primary target is Linux, shipped as a self-updating
-AppImage. Windows also ships as an NSIS installer plus a portable executable
-(no in-app self-update on Windows, so its build produces no updater artifacts
-and needs no signing key). The portable file is the plain `release-manager.exe`
-from the build, renamed to `danmaku-builds_<version>_x64-portable.exe`; it uses the same `~/.da-release-manager` data dir as
-the installed app and, unlike the installer, does not bootstrap WebView2.
-
-macOS ships an Apple Silicon `.dmg` and self-updates like Linux. It is ad-hoc
-signed (`signingIdentity: "-"`), with no Developer ID or notarization, so
-Gatekeeper blocks the first launch of a downloaded copy until it is allowed
-under System Settings > Privacy & Security.
-
-The core is cross-platform; the unix-only bits (config file mode, the
-libwayland trampoline) are `cfg`-gated.
-
-It is versioned and released independently of the extension, with its own
-self-update lifecycle. It consumes the extension's `v*`/`preview-*`/`nightly-*`
-releases from the extension repo and publishes its own releases here.
+A self-updating desktop app (Tauri 2) that downloads extension builds from the `Danmaku-Anywhere/danmaku-anywhere` releases and manages which cached build is the "active" unpacked folder loaded into `chrome://extensions`. It is versioned and released independently of the extension. Linux and macOS self-update; Windows ships an installer and a portable exe with no in-app update and no signing key. Install and platform notes for users are in `README.md`.
 
 ## Architecture
 
-- `src/` React frontend (one screen). Talks to the backend over Tauri IPC via
-  `invoke`; `src/api.ts` wraps the commands, `src/updater.ts` wraps the updater
-  plugin. There is no HTTP server.
-- `src-tauri/` is a two-crate Cargo workspace:
-  - `core/` (`release-manager-core`): pure logic with no Tauri dependency
-    (`github`, `cache`, `active`, `store`, `manager`, `types`, `error`). All
-    fallible ops return `Result<T, RmError>`; `RmError` serializes to
-    `{ kind, message }` (and `status` for `auth`), matching what the UI renders.
-    Keeping this crate Tauri-free means its tests run without the webkit system
-    libraries, which is the fast inner loop.
-  - the app crate (`release-manager`): Tauri commands (thin wrappers over the
-    manager behind a `tokio::sync::Mutex`), plugin registration, and startup
-    wiring in `src/lib.rs`.
-
-## Commands (JS `invoke`)
-
-`get_state`, `list_releases` (paged, 100 per page), `download_build`,
-`set_active`, `remove_build`. There is no GitHub token: the repo is public and
-unauthenticated requests suffice.
+- `src/` is a one-screen React frontend that talks to the backend over Tauri IPC (`src/api.ts`, `src/updater.ts`). There is no HTTP server and no GitHub token; the repo is public and unauthenticated requests suffice.
+- `src-tauri/core/` (`release-manager-core`) is pure logic with no Tauri dependency, so its tests run without the webkit libraries. Fallible ops return `Result<T, RmError>`; `RmError` serializes to `{ kind, message }` (and `status` for `auth`), matching what the UI renders.
+- `src-tauri/src/` is the app crate: thin Tauri commands over the manager behind a `tokio::sync::Mutex`. The registered commands are the `generate_handler!` list in `src-tauri/src/lib.rs`.
+- Where a tray is available, closing the window hides it and the app can start hidden (`--hidden`, passed by open at login). Without a tray, closing quits.
+- Release trains: a stored `Train` (`stable` or `nightly`, optional `keep_last`) makes the app check for the newest release on that train, download it, make it active. Only when `keep_last` is set does it prune: it keeps the newest `keep_last` builds on that train and spares the active one.
 
 ## Toolchain prerequisites
 
-- Rust stable (via rustup).
-- Linux system libraries for a Tauri 2 build: webkit2gtk 4.1 dev, gtk3 dev,
-  librsvg dev, an appindicator dev package, and `patchelf`. `Xvfb` is needed for
-  the headless boot smoke.
-- Local AppImage bundling: on distributions whose system libraries use the RELR
-  relocation format (a `.relr.dyn` section, e.g. recent Fedora), set
-  `NO_STRIP=1` for `tauri build`. linuxdeploy bundles an older `strip` that
-  cannot parse that section and fails otherwise. The CI runner (ubuntu-22.04)
-  does not need this.
-- Host webkit vs bundled: the AppImage bundles the ubuntu-22.04 webkit and
-  libwayland. On a much newer host the bundled libwayland can't negotiate EGL
-  with the host compositor/Mesa, so the window fails to start. `main.rs`
-  preloads the host libwayland and re-execs once (only when launched from the
-  AppImage) to work around it. The bundled webkit still renders in software on
-  newer GPUs, so it can feel sluggish; the real fix is to use the host webkit
-  (ship rpm/deb, or a non-bundling AppImage), not done in v1.
-- Windows: `winget install Rustlang.Rustup` (stable MSVC toolchain, defaults are
-  fine) plus the Visual Studio 2022 Build Tools with the C++ workload:
-  `winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet
-  --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`.
-  Without the `--override` winget installs an empty Build Tools shell with no
-  compiler or Windows SDK, and the silent install still raises a UAC prompt
-  that has to be approved on screen. WebView2 ships with Windows 11. Open a new
-  shell afterwards so `%USERPROFILE%\.cargo\bin` is on PATH.
-
-## How to run
-
-- Dev: `pnpm dev` (`tauri dev`). Vite serves the frontend; Tauri opens the
-  native window.
-- Checks: `pnpm type-check`, `pnpm lint`, `pnpm test`. CI runs the same on every
-  PR.
-- The app icon is set on the window at startup as well as bundled. GNOME Wayland
-  ignores window-set icons and matches the installed `.desktop` file instead, so
-  under `pnpm dev` there it shows a generic icon. The installed AppImage and X11
-  desktops show the real icon.
+- Linux Tauri build: webkit2gtk 4.1 dev, gtk3 dev, librsvg dev, an appindicator dev package and `patchelf`. `Xvfb` is needed for the headless boot smoke.
+- Local AppImage bundling on distributions whose libraries use RELR relocations (a `.relr.dyn` section, e.g. recent Fedora): set `NO_STRIP=1` for `tauri build`, because linuxdeploy's bundled `strip` cannot parse it. The CI runner does not need this.
+- The AppImage bundles the ubuntu-22.04 webkit and libwayland. On a much newer host the bundled libwayland cannot negotiate EGL with the host compositor, so the window fails to start. `main.rs` preloads the host libwayland and re-execs once (only from the AppImage). The bundled webkit still renders in software on newer GPUs; the real fix (host webkit via rpm/deb) is not done.
+- Windows: `winget install Rustlang.Rustup` plus `winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`. Without `--override` winget installs an empty Build Tools shell with no compiler or SDK, and the silent install still raises a UAC prompt to approve on screen. Open a new shell afterwards so `%USERPROFILE%\.cargo\bin` is on PATH.
+- The window icon is set at startup as well as bundled. GNOME Wayland ignores it and matches the installed `.desktop` file, so `pnpm dev` shows a generic icon there.
 
 ## Tests
 
-- `pnpm test` runs `cargo test -p release-manager-core` (the webkit-free unit
-  tests plus the full-flow integration e2e in `core/tests/e2e_flow.rs`, which
-  drives the manager against an in-process fake GitHub server and asserts real
-  filesystem state). This is the primary agentic verification.
-- The app crate compiles and boots only with the webkit libraries present. A
-  headless boot smoke is `xvfb-run -a` the built debug binary with a throwaway
-  `DA_RELEASE_MANAGER_DIR`.
-- There is no WebDriver UI e2e: Fedora ships no `WebKitWebDriver` matching
-  webkit2gtk-4.1, and the backend integration test already covers the behavior.
-- The same `pnpm test` runs on Windows. Two tests are platform-aware: the
-  active-folder link test uses a junction on Windows because a real directory
-  symlink needs Developer Mode or an elevated shell, and the config file mode
-  test is unix-only because Windows has no mode bits (the file inherits the
-  user-private ACL of the profile directory instead).
+- `pnpm test` runs the Rust core tests and vitest. The core tests include a full-flow e2e in `core/tests/e2e_flow.rs` against an in-process fake GitHub server that asserts real filesystem state. This is the primary verification.
+- The app crate only compiles and boots with the webkit libraries. A headless boot smoke is `xvfb-run -a` the built debug binary with a throwaway `DA_RELEASE_MANAGER_DIR`.
+- There is no WebDriver UI e2e: Fedora ships no `WebKitWebDriver` matching webkit2gtk-4.1, and the backend integration test covers the behavior.
+- On Windows two tests differ: the active-folder link test uses a junction (a directory symlink needs Developer Mode), and the config file mode test is unix-only.
 
-## Configuration seams (env, production defaults)
+## Configuration seams
 
-Read once at startup; no test backdoors.
-
-- `DA_RELEASE_MANAGER_DIR` (default `~/.da-release-manager`)
-- `DA_RELEASE_MANAGER_GITHUB_BASE` (default `https://api.github.com`)
-
-Data dir layout:
+Read once at startup, no test backdoors: `DA_RELEASE_MANAGER_DIR` (default `~/.da-release-manager`) and `DA_RELEASE_MANAGER_GITHUB_BASE` (default `https://api.github.com`).
 
 ```
 <dataDir>/
@@ -120,52 +41,17 @@ Data dir layout:
 
 ## Active-folder swap (load-bearing invariant)
 
-`set_active(tag)` makes `<dataDir>/active` a real directory and copies the chosen
-`cache/<tag>/` build into it, replacing its previous contents in place. It is a
-copy, never a symlink: a sandboxed (Flatpak) Chrome reads the picked folder
-through a document portal that does not grant the symlink's target, so a
-symlinked active folder fails with "File path cannot be resolved." Copying keeps
-the loaded path stable across swaps and works for both native and Flatpak Chrome.
-`remove_build` refuses to delete the currently active build. A leftover symlink
-or junction at `active` is removed as a link, never followed, so the build it
-pointed at survives; on Windows that takes `remove_dir`, since `remove_file` on
-a directory link fails with access denied.
+`set_active(tag)` makes `<dataDir>/active` a real directory and copies the chosen `cache/<tag>/` build into it, replacing its previous contents in place. It is a copy, never a symlink: a sandboxed (Flatpak) Chrome reads the picked folder through a document portal that does not grant the symlink's target, so a symlinked active folder fails with "File path cannot be resolved." Copying keeps the loaded path stable across swaps and works for native and Flatpak Chrome. `remove_build` refuses to delete the active build. A leftover symlink or junction at `active` is removed as a link, never followed; on Windows that takes `remove_dir`, since `remove_file` on a directory link fails with access denied.
 
 ## Self-update and signing
 
-- `tauri-plugin-updater` checks `latest.json` on this repo's latest release
-  (`releases/latest/download/latest.json`). The minisign public key is embedded
-  in `tauri.conf.json`.
-- Copies older than 0.5.0 poll the `release-manager-latest` release in the
-  extension repo and trust a different key. That feed is frozen at 0.5.0, which
-  was signed with the old key and carries this repo's key and feed, so old copies
-  move over by updating once. Never delete that release or its tag.
-- Release signing uses a minisign keypair generated with `pnpm tauri signer
-  generate`. The private key and its password are CI secrets
-  (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`); never
-  commit them.
+- `tauri-plugin-updater` checks `latest.json` on this repo's latest release. The minisign public key is embedded in `tauri.conf.json`; the private key and password are the CI secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+- Copies older than 0.5.0 poll the `release-manager-latest` release in the extension repo and trust a different key. That feed is frozen at 0.5.0, which carries this repo's key and feed, so old copies move over by updating once. Never delete that release or its tag.
 
 ## Release flow
 
-Push a `v<major>.<minor>.<patch>` tag on master; that is the whole release.
-CI stamps the tag's version into `package.json` and `tauri.conf.json` before
-building (`scripts/set-version.cjs`), so the version in the repo files is only
-what local builds report and needs no bump. CI creates a draft release, builds
-Linux, macOS and Windows in parallel into it, and writes `latest.json` from the
-Linux and macOS update signatures. A final job runs `scripts/verify-release.sh`:
-every bundle must be present, `latest.json` must carry the tag's version, and
-each update bundle must verify against the public key in `tauri.conf.json`.
-Only then does it publish the draft as the latest release, which is when the
-updater picks it up. If a build or a check fails, the release stays a draft:
-fix it, delete the draft and the tag, and tag again. A manual run creates no
-release but uploads every bundle as workflow artifacts, which is the way to try
-a CI build without tagging. The
-first install is manual (download the AppImage or dmg from the release);
-self-update covers every version after that.
+Push a `v<major>.<minor>.<patch>` tag on master. CI stamps the tag's version into `package.json` and `tauri.conf.json` (`scripts/set-version.cjs`), so repo files need no bump. A release tag must point at a commit on master that contains the master-ancestry gate (the workflow runs from the tagged revision, so an older commit has no gate), and the `release-manager-signing` environment now only accepts master and `v*` tags.
 
-Tag runs can only restore Rust caches saved on the default branch, so
-`warm-release-cache.yml` compiles the release profile on master (on pushes that
-touch `src-tauri/`) and saves it under `shared-key: release-<os>`. The release
-jobs restore that key and never save. If the release build's cargo features or
-the `shared-key` change, change both workflows together, or releases go back to
-compiling from scratch.
+The release stays a draft until `scripts/verify-release.sh` passes, and only then is it published as latest, which is when the updater picks it up. If a build or check fails, delete the draft and the tag and tag again. A manual run works only from master (a branch with commits not on master fails the gate). It creates no release; it uploads the AppImage, DMG, installer and portable exe as workflow artifacts. The first install is manual; self-update covers the rest.
+
+`warm-release-cache.yml` compiles the release profile on master and saves it under `shared-key: release-<os>`, because tag runs can only restore caches saved on the default branch. The release jobs restore that key and never save. If the release build's cargo features or the `shared-key` change, change both workflows together.

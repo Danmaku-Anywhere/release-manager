@@ -30,8 +30,28 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the commit is on master
+        run: |
+          git fetch origin +refs/heads/master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/master; then
+            echo "::error::$GITHUB_SHA is not on master, refusing to build or sign it"
+            exit 1
+          fi
+
   draft:
+    needs: gate
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -59,8 +79,8 @@ jobs:
           echo "release_id=$id" >> "$GITHUB_OUTPUT"
 
   build-linux:
-    needs: draft
-    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
+    needs: [ gate, draft ]
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.draft.result != 'failure' }}
     runs-on: ubuntu-22.04
     # The minisign signing key lives in this Environment, not in repo-wide
     # secrets, so only the signing jobs can read it and forks never see it.
@@ -119,8 +139,8 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    needs: draft
-    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
+    needs: [ gate, draft ]
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.draft.result != 'failure' }}
     runs-on: macos-latest
     environment: release-manager-signing
     permissions:
@@ -172,8 +192,8 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    needs: draft
-    if: ${{ !cancelled() && needs.draft.result != 'failure' }}
+    needs: [ gate, draft ]
+    if: ${{ !cancelled() && needs.gate.result == 'success' && needs.draft.result != 'failure' }}
     runs-on: windows-latest
     permissions:
       contents: write
