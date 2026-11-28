@@ -430,6 +430,7 @@ mod tests {
             ..make_asset(tag, "1.0.0")
         };
 
+        crate::ensure_crypto_provider();
         let client = reqwest::Client::new();
         let result = download_build(data_dir, &asset, &client, None).await;
         assert!(result.is_ok(), "download_build failed: {:?}", result.err());

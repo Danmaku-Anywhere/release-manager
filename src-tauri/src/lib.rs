@@ -30,6 +30,7 @@ async fn follow_train(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    release_manager_core::ensure_crypto_provider();
     let builder = tauri::Builder::default().plugin(tauri_plugin_single_instance::init(
         |app, _args, _cwd| {
             tray::show_main_window(app);

@@ -116,6 +116,7 @@ async fn full_release_manager_flow() {
 
     let dir = tempdir().unwrap();
     let data_dir = dir.path().to_path_buf();
+    release_manager_core::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         .user_agent("e2e-test")
         .build()
@@ -309,6 +310,7 @@ async fn download_build_searches_past_page_one() {
     };
 
     let dir = tempdir().unwrap();
+    release_manager_core::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         .user_agent("e2e-test")
         .build()
@@ -377,6 +379,7 @@ async fn download_build_page_cap_returns_not_found() {
     };
 
     let dir = tempdir().unwrap();
+    release_manager_core::ensure_crypto_provider();
     let client = reqwest::Client::builder()
         .user_agent("e2e-test")
         .build()
